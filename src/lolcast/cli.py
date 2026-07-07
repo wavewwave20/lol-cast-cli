@@ -1,0 +1,135 @@
+"""lolcast CLI 진입점."""
+import argparse
+import sys
+from datetime import datetime, timedelta, timezone
+
+from rich.console import Console
+from rich.table import Table
+
+from . import api, app
+
+KST = timezone(timedelta(hours=9))
+STATE_EMOJI = {"completed": "✅", "inProgress": "🔴", "unstarted": "⏳"}
+
+
+def _kst(iso: str) -> str:
+    dt = datetime.fromisoformat(iso.replace("Z", "+00:00")).astimezone(KST)
+    return dt.strftime("%m/%d %H:%M")
+
+
+def _league_events(slugs: list[str]) -> list[dict]:
+    ids = api.intl_league_ids()
+    events = []
+    for slug in slugs:
+        if slug not in ids:
+            continue
+        for e in api.get_schedule(ids[slug]):
+            e["_league"] = slug
+            events.append(e)
+    events.sort(key=lambda e: e["startTime"])
+    return events
+
+
+def cmd_schedule(args) -> None:
+    console = Console()
+    events = _league_events(args.league.split(","))
+    now = datetime.now(timezone.utc).isoformat()
+    # 최근 완료 5개 + 이후 전부
+    past = [e for e in events if e["startTime"] < now and e["state"] == "completed"]
+    rest = [e for e in events if e not in past]
+    rows = past[-5:] + rest
+    table = Table(title="🎮 국제대회 일정 (KST)")
+    for col in ("시간", "리그", "매치", "상태", "matchId"):
+        table.add_column(col)
+    for e in rows:
+        m = e.get("match", {})
+        teams = " vs ".join(t.get("code", "TBD") for t in m.get("teams", []))
+        result = ""
+        if e["state"] == "completed":
+            ws = [str(t.get("result", {}).get("gameWins", "")) for t in m.get("teams", [])]
+            result = f" ({'-'.join(ws)})"
+        table.add_row(_kst(e["startTime"]), e["_league"], teams + result,
+                      f"{STATE_EMOJI.get(e['state'], '')} {e['state']}", m.get("id", ""))
+    console.print(table)
+
+
+def cmd_watch(args) -> None:
+    console = Console()
+    live = [e for e in api.get_live() if e.get("type") == "match"]
+    slugs = set(args.league.split(","))
+    live = [e for e in live if e.get("league", {}).get("slug") in slugs] or live
+    if not live:
+        console.print("😴 지금 라이브 경기가 없어. 다음 예정 경기:")
+        events = _league_events(sorted(slugs))
+        now = datetime.now(timezone.utc).isoformat()
+        for e in [e for e in events if e["startTime"] > now][:3]:
+            teams = " vs ".join(t.get("code", "TBD")
+                                for t in e.get("match", {}).get("teams", []))
+            # [msi] 같은 대괄호가 rich 마크업으로 해석되지 않도록 markup=False
+            console.print(f"  ⏳ {_kst(e['startTime'])} [{e['_league']}] {teams}",
+                          markup=False)
+        return
+    if len(live) > 1:
+        for i, e in enumerate(live, 1):
+            teams = " vs ".join(t["code"] for t in e["match"]["teams"])
+            console.print(f"  {i}. [{e['league']['slug']}] {teams}")
+        idx = int(input("중계할 경기 번호: ")) - 1
+    else:
+        idx = 0
+    app.run_live(live[idx]["match"]["id"])
+
+
+def cmd_replay(args) -> None:
+    console = Console()
+    if args.query.isdigit() and len(args.query) > 12:
+        app.run_replay(args.query, speed=args.speed)
+        return
+    events = _league_events(["first_stand", "msi", "worlds"])
+    q = args.query.lower()
+    done = [e for e in events if e["state"] == "completed"
+            and any(q in (t.get("code", "") + t.get("name", "")).lower()
+                    for t in e.get("match", {}).get("teams", []))]
+    if not done:
+        console.print(f"[red]'{args.query}' 완료 경기를 못 찾았어.[/red]")
+        sys.exit(1)
+    e = done[-1]
+    teams = " vs ".join(t["code"] for t in e["match"]["teams"])
+    detail = api.get_event_details(e["match"]["id"])
+    games = [g for g in detail["match"]["games"] if g["state"] == "completed"]
+    if not games:
+        console.print(f"[red]{teams}: 완료된 게임 데이터가 없어.[/red]")
+        sys.exit(1)
+    g = games[args.game - 1] if 0 < args.game <= len(games) else games[-1]
+    console.print(f"▶️ {teams} Game {g['number']} 리플레이 (x{args.speed})")
+    app.run_replay(g["id"], speed=args.speed,
+                   series=f"{teams} — Game {g['number']} (replay)")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(prog="lolcast",
+                                     description="LoL 이스포츠 CLI 텍스트 중계")
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    p = sub.add_parser("schedule", help="경기 일정")
+    p.add_argument("--league", default="first_stand,msi,worlds")
+    p.set_defaults(func=cmd_schedule)
+
+    p = sub.add_parser("watch", help="라이브 중계")
+    p.add_argument("--league", default="first_stand,msi,worlds")
+    p.set_defaults(func=cmd_watch)
+
+    p = sub.add_parser("replay", help="지난 경기 리플레이 중계")
+    p.add_argument("query", help="팀 검색어 또는 gameId")
+    p.add_argument("--speed", type=float, default=8.0)
+    p.add_argument("--game", type=int, default=0, help="세트 번호 (기본: 마지막)")
+    p.set_defaults(func=cmd_replay)
+
+    args = parser.parse_args()
+    try:
+        args.func(args)
+    except KeyboardInterrupt:
+        print("\n👋 중계 종료")
+
+
+if __name__ == "__main__":
+    main()
