@@ -1,0 +1,16 @@
+[project]
+name = "lolcast"
+version = "0.1.0"
+description = "LoL esports CLI text commentary"
+requires-python = ">=3.12"
+dependencies = ["requests>=2.31", "rich>=13.7"]
+
+[project.scripts]
+lolcast = "lolcast.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = ["pytest>=8.0"]
