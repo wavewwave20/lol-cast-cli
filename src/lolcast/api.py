@@ -67,6 +67,24 @@ def get_window(game_id: str, starting_time: str | None = None) -> dict | None:
     return _get(f"{FEED}/window/{game_id}", params)
 
 
+_champ_ko: dict[str, str] | None = None
+
+
+def champion_names_ko() -> dict[str, str]:
+    """Data Dragon에서 {영문 챔피언 id: 한글명} 매핑. 실패 시 빈 dict (영문 표기 폴백)."""
+    global _champ_ko
+    if _champ_ko is None:
+        try:
+            vers = _get("https://ddragon.leagueoflegends.com/api/versions.json",
+                        retries=1)
+            data = _get("https://ddragon.leagueoflegends.com/cdn/"
+                        f"{vers[0]}/data/ko_KR/champion.json", retries=1)
+            _champ_ko = {k: v["name"] for k, v in data["data"].items()}
+        except Exception:
+            _champ_ko = {}
+    return _champ_ko
+
+
 def find_game_start(game_id: str, lower: datetime) -> str | None:
     """라이브 게임의 시작 시각(첫 프레임 ts)을 이진 탐색으로 찾는다.
 

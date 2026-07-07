@@ -9,7 +9,8 @@ from rich.table import Table
 from . import api, app
 
 KST = timezone(timedelta(hours=9))
-STATE_EMOJI = {"completed": "✅", "inProgress": "🔴", "unstarted": "⏳"}
+STATE_LABEL = {"completed": ("완료", "dim"), "inProgress": ("LIVE", "bold red"),
+               "unstarted": ("예정", "yellow")}
 
 
 def _kst(iso: str) -> str:
@@ -38,9 +39,11 @@ def cmd_schedule(args) -> None:
     past = [e for e in events if e["startTime"] < now and e["state"] == "completed"]
     rest = [e for e in events if e not in past]
     rows = past[-5:] + rest
-    table = Table(title="🎮 국제대회 일정 (KST)")
+    table = Table(title="국제대회 일정 (KST)", title_style="bold",
+                  header_style="dim", border_style="dim")
     for col in ("시간", "리그", "매치", "상태", "matchId"):
         table.add_column(col)
+    from rich.text import Text
     for e in rows:
         m = e.get("match", {})
         teams = " vs ".join(t.get("code", "TBD") for t in m.get("teams", []))
@@ -48,8 +51,9 @@ def cmd_schedule(args) -> None:
         if e["state"] == "completed":
             ws = [str(t.get("result", {}).get("gameWins", "")) for t in m.get("teams", [])]
             result = f" ({'-'.join(ws)})"
+        label, style = STATE_LABEL.get(e["state"], (e["state"], ""))
         table.add_row(_kst(e["startTime"]), e["_league"], teams + result,
-                      f"{STATE_EMOJI.get(e['state'], '')} {e['state']}", m.get("id", ""))
+                      Text(label, style=style), Text(m.get("id", ""), style="dim"))
     console.print(table)
 
 
@@ -59,15 +63,15 @@ def cmd_watch(args) -> None:
     slugs = set(args.league.split(","))
     live = [e for e in live if e.get("league", {}).get("slug") in slugs] or live
     if not live:
-        console.print("😴 지금 라이브 경기가 없어. 다음 예정 경기:")
+        console.print("지금 라이브 경기가 없어. 다음 예정 경기:")
         events = _league_events(sorted(slugs))
         now = datetime.now(timezone.utc).isoformat()
         for e in [e for e in events if e["startTime"] > now][:3]:
             teams = " vs ".join(t.get("code", "TBD")
                                 for t in e.get("match", {}).get("teams", []))
             # [msi] 같은 대괄호가 rich 마크업으로 해석되지 않도록 markup=False
-            console.print(f"  ⏳ {_kst(e['startTime'])} [{e['_league']}] {teams}",
-                          markup=False)
+            console.print(f"  {_kst(e['startTime'])} [{e['_league']}] {teams}",
+                          markup=False, style="dim")
         return
     if len(live) > 1:
         for i, e in enumerate(live, 1):
@@ -100,9 +104,9 @@ def cmd_replay(args) -> None:
         console.print(f"[red]{teams}: 완료된 게임 데이터가 없어.[/red]")
         sys.exit(1)
     g = games[args.game - 1] if 0 < args.game <= len(games) else games[-1]
-    console.print(f"▶️ {teams} Game {g['number']} 리플레이 (x{args.speed})")
+    console.print(f"{teams} Game {g['number']} 리플레이 (x{args.speed})", style="dim")
     app.run_replay(g["id"], speed=args.speed,
-                   series=f"{teams} — Game {g['number']} (replay)")
+                   series=f"{teams} · Game {g['number']} (replay)")
 
 
 def main() -> None:
@@ -128,7 +132,7 @@ def main() -> None:
     try:
         args.func(args)
     except KeyboardInterrupt:
-        print("\n👋 중계 종료")
+        print("\n중계 종료")
 
 
 if __name__ == "__main__":

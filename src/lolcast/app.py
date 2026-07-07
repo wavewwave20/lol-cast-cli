@@ -5,8 +5,8 @@ from datetime import datetime, timedelta, timezone
 
 from rich.console import Console, Group
 from rich.live import Live
-from rich.panel import Panel
 from rich.rule import Rule
+from rich.table import Table
 from rich.text import Text
 
 from . import api, events, render
@@ -20,26 +20,35 @@ def _parse(ts: str) -> datetime:
 
 def build_context(window: dict, series: str = "") -> render.GameContext:
     md = window["gameMetadata"]
+    champ_ko = api.champion_names_ko()
+    codes = {}
     names, champs = {}, {}
-    for side in ("blueTeamMetadata", "redTeamMetadata"):
-        for p in md[side]["participantMetadata"]:
-            names[p["participantId"]] = p["summonerName"]
-            champs[p["participantId"]] = p["championId"]
-    blue = md["blueTeamMetadata"]["participantMetadata"][0]["summonerName"].split()[0]
-    red = md["redTeamMetadata"]["participantMetadata"][0]["summonerName"].split()[0]
-    return render.GameContext(blue_code=blue, red_code=red, names=names,
-                              champions=champs, series=series)
+    for meta_key in ("blueTeamMetadata", "redTeamMetadata"):
+        parts = md[meta_key]["participantMetadata"]
+        code = parts[0]["summonerName"].split()[0]
+        codes[meta_key] = code
+        for p in parts:
+            pid = p["participantId"]
+            names[pid] = p["summonerName"].removeprefix(code + " ")
+            champs[pid] = champ_ko.get(p["championId"], p["championId"])
+    return render.GameContext(
+        blue_code=codes["blueTeamMetadata"], red_code=codes["redTeamMetadata"],
+        names=names, champions=champs, series=series)
 
 
 class Broadcaster:
     def __init__(self, ctx: render.GameContext, max_feed: int = 300):
         self.ctx = ctx
-        self.feed: deque[str] = deque(maxlen=max_feed)
+        self.feed: deque[render.FeedLine] = deque(maxlen=max_feed)
         self.prev: dict | None = None
         self.last_frame: dict | None = None
         self.last_gold_at: float = 0.0  # 게임시간 초
         self.finished = False
-        self.status: str = ""
+
+    def info(self, text: str) -> None:
+        clock = (render.game_clock(self.ctx, self.last_frame["rfc460Timestamp"])
+                 if self.last_frame else "")
+        self.feed.append(render.info_line(text, clock))
 
     def process(self, frames: list[dict]) -> None:
         for f in frames:
@@ -49,7 +58,7 @@ class Broadcaster:
                 if f["rfc460Timestamp"] <= self.prev["rfc460Timestamp"]:
                     continue  # 윈도우 겹침/중복 프레임 스킵
                 for ev in events.diff(self.prev, f):
-                    self.feed.append(render.format_event(self.ctx, ev))
+                    self.feed.append(render.feed_line(self.ctx, ev))
                 self._maybe_gold(f)
             if f["gameState"] == "finished":
                 self.finished = True
@@ -64,27 +73,34 @@ class Broadcaster:
         if elapsed - self.last_gold_at >= GOLD_INTERVAL:
             self.last_gold_at = elapsed
             self.feed.append(
-                render.format_event(self.ctx, events.gold_update(frame)))
+                render.feed_line(self.ctx, events.gold_update(frame)))
 
     def renderable(self, height: int):
-        body_h = max(3, height - 6)
+        body_h = max(3, height - 7)
         lines = list(self.feed)[-body_h:]
-        parts = [render.scoreboard(self.ctx, self.last_frame)] if self.last_frame else []
+        grid = Table.grid(padding=(0, 2))
+        grid.add_column(justify="right", width=6)   # 시간
+        grid.add_column(width=6)                    # 태그
+        grid.add_column(ratio=1)                    # 내용
+        for i, line in enumerate(lines):
+            old = i < len(lines) - 10
+            grid.add_row(Text(line.clock, style="dim"),
+                         Text(line.tag, style=line.tag_style),
+                         line.body,
+                         style="dim" if old else None)
+        parts = []
+        if self.last_frame:
+            parts.append(render.scoreboard(self.ctx, self.last_frame))
         parts.append(Rule(style="dim"))
-        # 피드 라인에 [25:01] 같은 대괄호가 있으므로 markup 해석 금지, plain Text 사용
-        parts += [Text(l, style="dim") if i < len(lines) - 10 else Text(l)
-                  for i, l in enumerate(lines)]
-        if self.status:
-            parts.append(Text(self.status, style="yellow"))
-        return Panel(Group(*parts), title=self.ctx.series or "lolcast",
-                     border_style="dim")
+        parts.append(grid)
+        return Group(*parts)
 
 
 def run_replay(game_id: str, speed: float = 8.0, series: str = "") -> None:
     console = Console()
     first = api.get_window(game_id)  # 완료 게임: 첫 윈도우
     if first is None or not first.get("frames"):
-        console.print("[red]게임 데이터를 찾을 수 없어.[/red]")
+        console.print("게임 데이터를 찾을 수 없어.", style="red")
         return
     ctx = build_context(first, series)
     bc = Broadcaster(ctx)
@@ -103,7 +119,7 @@ def run_replay(game_id: str, speed: float = 8.0, series: str = "") -> None:
             live.update(bc.renderable(console.size.height))
             time.sleep(10.0 / speed)
         live.update(bc.renderable(console.size.height))
-    console.print("[bold]🏁 중계 종료[/bold]")
+    console.print("중계 종료", style="bold")
 
 
 def run_live(match_id: str, poll: float = 10.0) -> None:
@@ -116,7 +132,7 @@ def run_live(match_id: str, poll: float = 10.0) -> None:
             if game is None:
                 break
             _broadcast_live_game(game, teams, live, console, poll)
-    console.print(f"[bold]🏁 {teams} 매치 종료[/bold]")
+    console.print(f"{teams} 매치 종료", style="bold")
 
 
 def _current_game(match_id: str) -> dict | None:
@@ -124,7 +140,7 @@ def _current_game(match_id: str) -> dict | None:
     teams = " vs ".join(t["code"] for t in detail["match"]["teams"])
     for g in detail["match"]["games"]:
         if g["state"] in ("inProgress", "unstarted"):
-            g["_series"] = f"{teams} — Game {g['number']}"
+            g["_series"] = f"{teams} · Game {g['number']}"
             return g
     return None
 
@@ -135,9 +151,9 @@ def _broadcast_live_game(game: dict, teams: str, live, console, poll: float) -> 
     while True:
         win = api.get_window(game_id)
         if win is None or not win.get("frames"):
-            live.update(Panel(Text(
-                f"⏳ {teams} — Game {game['number']} 시작 대기 중...",
-                style="yellow")))
+            live.update(Text(
+                f"{teams} · Game {game['number']} 시작 대기 중...",
+                style="yellow"))
             time.sleep(poll)
             continue
         if bc is None:
@@ -145,11 +161,11 @@ def _broadcast_live_game(game: dict, teams: str, live, console, poll: float) -> 
             ctx.game_start = api.find_game_start(
                 game_id, datetime.now(timezone.utc) - timedelta(hours=3))
             bc = Broadcaster(ctx)
-            bc.feed.append(f"📡 {ctx.series} 중계 시작")
+            bc.info(f"{ctx.series} 중계 시작")
         bc.process(win["frames"])
         live.update(bc.renderable(console.size.height))
         if bc.finished:
-            bc.feed.append("⏳ 다음 게임 확인 중...")
+            bc.info("다음 게임 확인 중...")
             live.update(bc.renderable(console.size.height))
             time.sleep(30)
             return

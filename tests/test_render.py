@@ -1,12 +1,12 @@
 from lolcast.events import Event
-from lolcast.render import GameContext, format_event, game_clock
+from lolcast.render import GameContext, feed_line, game_clock, gold_bar
 
 
 def make_ctx():
     return GameContext(
         blue_code="T1", red_code="FUR",
-        names={1: "T1 Faker", 6: "FUR Tutsz"},
-        champions={1: "Azir", 6: "Taliyah"},
+        names={1: "Faker", 6: "Tutsz"},
+        champions={1: "아지르", 6: "탈리야"},
         game_start="2026-07-06T06:00:00.000Z",
     )
 
@@ -17,26 +17,40 @@ def test_game_clock():
     assert game_clock(ctx, "2026-07-06T07:05:09.500Z") == "65:09"
 
 
-def test_format_kill():
+def test_kill_line():
     ev = Event("2026-07-06T06:25:01.000Z", "kill", "blue",
                {"killer": 1, "victim": 6})
-    assert format_event(make_ctx(), ev) == \
-        "⚔️ [25:01] T1 Faker(Azir) → FUR Tutsz(Taliyah) 킬"
+    line = feed_line(make_ctx(), ev)
+    assert line.clock == "25:01"
+    assert line.tag == "킬"
+    assert line.body.plain == "Faker(아지르) → Tutsz(탈리야)"
 
 
-def test_format_dragon_korean_element():
+def test_dragon_line_korean_element():
     ev = Event("2026-07-06T06:25:01.000Z", "dragon", "red",
                {"element": "infernal", "stack": 2})
-    assert format_event(make_ctx(), ev) == "🐉 [25:01] FUR 화염 드래곤 처치 (2스택)"
+    line = feed_line(make_ctx(), ev)
+    assert line.tag == "용"
+    assert line.body.plain == "FUR 화염 드래곤 (2스택)"
 
 
-def test_format_gold():
+def test_gold_line():
     ev = Event("2026-07-06T06:25:01.000Z", "gold", None,
                {"blue": 52000, "red": 48700})
-    assert format_event(make_ctx(), ev) == "💰 [25:01] 골드: T1 +3.3k (52.0k : 48.7k)"
+    line = feed_line(make_ctx(), ev)
+    assert line.tag == "골드"
+    assert line.body.plain == "T1 +3.3k (52.0 : 48.7)"
 
 
-def test_format_game_state():
+def test_game_end_line():
     ev = Event("2026-07-06T06:25:01.000Z", "game_state", None,
                {"from": "in_game", "to": "finished"})
-    assert format_event(make_ctx(), ev) == "🏁 [25:01] 게임 종료"
+    line = feed_line(make_ctx(), ev)
+    assert line.tag == "종료"
+    assert line.body.plain == "게임 종료"
+
+
+def test_gold_bar_leans_toward_leader():
+    bar = gold_bar(make_ctx(), blue=60000, red=40000, width=20)
+    assert bar.plain.count("▓") == 12  # 60% of 20
+    assert bar.plain.count("░") == 8
