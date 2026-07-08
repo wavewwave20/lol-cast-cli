@@ -12,6 +12,7 @@ from rich.text import Text
 from . import api, events, render
 
 GOLD_INTERVAL = 60  # 게임시간 기준 골드 현황 주기 (초)
+FEED_RECENT = 5     # 라이브 영역에 유지할 최근 피드 줄 수 (초과분은 스크롤백으로)
 
 
 def _parse(ts: str) -> datetime:
@@ -37,18 +38,35 @@ def build_context(window: dict, series: str = "") -> render.GameContext:
 
 
 class Broadcaster:
-    def __init__(self, ctx: render.GameContext, max_feed: int = 300):
+    def __init__(self, ctx: render.GameContext, console: Console):
         self.ctx = ctx
-        self.feed: deque[render.FeedLine] = deque(maxlen=max_feed)
+        self.console = console
+        self.recent: deque[render.FeedLine] = deque()
         self.prev: dict | None = None
         self.last_frame: dict | None = None
         self.last_gold_at: float = 0.0  # 게임시간 초
         self.finished = False
 
+    def _row(self, line: render.FeedLine) -> Table:
+        grid = Table.grid(padding=(0, 2))
+        grid.add_column(justify="right", width=6)   # 시간
+        grid.add_column(width=6)                    # 태그
+        grid.add_column(ratio=1)                    # 내용
+        grid.add_row(Text(line.clock, style="dim"),
+                     Text(line.tag, style=line.tag_style),
+                     line.body)
+        return grid
+
+    def _push(self, line: render.FeedLine) -> None:
+        self.recent.append(line)
+        if len(self.recent) > FEED_RECENT:
+            # 라이브 영역에서 밀려난 줄은 스크롤백에 영구 출력 (터미널에서 스크롤 가능)
+            self.console.print(self._row(self.recent.popleft()))
+
     def info(self, text: str) -> None:
         clock = (render.game_clock(self.ctx, self.last_frame["rfc460Timestamp"])
                  if self.last_frame else "")
-        self.feed.append(render.info_line(text, clock))
+        self._push(render.info_line(text, clock))
 
     def process(self, frames: list[dict]) -> None:
         for f in frames:
@@ -58,7 +76,7 @@ class Broadcaster:
                 if f["rfc460Timestamp"] <= self.prev["rfc460Timestamp"]:
                     continue  # 윈도우 겹침/중복 프레임 스킵
                 for ev in events.diff(self.prev, f):
-                    self.feed.append(render.feed_line(self.ctx, ev))
+                    self._push(render.feed_line(self.ctx, ev))
                 self._maybe_gold(f)
             if f["gameState"] == "finished":
                 self.finished = True
@@ -72,22 +90,17 @@ class Broadcaster:
                    - _parse(self.ctx.game_start)).total_seconds()
         if elapsed - self.last_gold_at >= GOLD_INTERVAL:
             self.last_gold_at = elapsed
-            self.feed.append(
-                render.feed_line(self.ctx, events.gold_update(frame)))
+            self._push(render.feed_line(self.ctx, events.gold_update(frame)))
 
-    def renderable(self, height: int):
-        body_h = max(3, height - 7)
-        lines = list(self.feed)[-body_h:]
+    def renderable(self):
         grid = Table.grid(padding=(0, 2))
         grid.add_column(justify="right", width=6)   # 시간
         grid.add_column(width=6)                    # 태그
         grid.add_column(ratio=1)                    # 내용
-        for i, line in enumerate(lines):
-            old = i < len(lines) - 10
+        for line in self.recent:
             grid.add_row(Text(line.clock, style="dim"),
                          Text(line.tag, style=line.tag_style),
-                         line.body,
-                         style="dim" if old else None)
+                         line.body)
         parts = []
         if self.last_frame:
             parts.append(render.scoreboard(self.ctx, self.last_frame))
@@ -103,7 +116,7 @@ def run_replay(game_id: str, speed: float = 8.0, series: str = "") -> None:
         console.print("게임 데이터를 찾을 수 없어.", style="red")
         return
     ctx = build_context(first, series)
-    bc = Broadcaster(ctx)
+    bc = Broadcaster(ctx, console)
     cursor = _parse(first["frames"][0]["rfc460Timestamp"])
     with Live(console=console, refresh_per_second=4, screen=False) as live:
         bc.process(first["frames"])
@@ -116,9 +129,9 @@ def run_replay(game_id: str, speed: float = 8.0, series: str = "") -> None:
                 if bc.prev and new_last <= bc.prev["rfc460Timestamp"]:
                     bc.finished = True
                 bc.process(win["frames"])
-            live.update(bc.renderable(console.size.height))
+            live.update(bc.renderable())
             time.sleep(10.0 / speed)
-        live.update(bc.renderable(console.size.height))
+        live.update(bc.renderable())
     console.print("중계 종료", style="bold")
 
 
@@ -160,13 +173,13 @@ def _broadcast_live_game(game: dict, teams: str, live, console, poll: float) -> 
             ctx = build_context(win, game.get("_series", ""))
             ctx.game_start = api.find_game_start(
                 game_id, datetime.now(timezone.utc) - timedelta(hours=3))
-            bc = Broadcaster(ctx)
+            bc = Broadcaster(ctx, console)
             bc.info(f"{ctx.series} 중계 시작")
         bc.process(win["frames"])
-        live.update(bc.renderable(console.size.height))
+        live.update(bc.renderable())
         if bc.finished:
             bc.info("다음 게임 확인 중...")
-            live.update(bc.renderable(console.size.height))
+            live.update(bc.renderable())
             time.sleep(30)
             return
         time.sleep(poll)
