@@ -11,7 +11,7 @@ LoL 이스포츠 국제대회(**First Stand / MSI / Worlds**)를 터미널에서
 > 2026-07-08 T1 경기를 보기 위해 급하게 만들었다. 🏃
 
 <p align="center">
-  <img src="docs/screenshot.svg" alt="lolcast 중계 화면 — 스코어보드, 선수 상세, 이벤트 피드" width="720">
+  <img src="docs/screenshot.png" alt="lolcast 중계 화면 — 스코어보드, 선수 상세, 이벤트 피드" width="720">
 </p>
 
 ## 설치
