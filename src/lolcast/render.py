@@ -90,6 +90,9 @@ def feed_line(ctx: GameContext, ev: Event) -> FeedLine:
                 " → ",
                 (_who(ctx, d["victim"]), TEAM_STYLE[_side_of(ctx, d["victim"])]),
             )
+            if d.get("assists"):
+                names = ", ".join(ctx.names.get(p, f"#{p}") for p in d["assists"])
+                body.append(f"  (어시 {names})", style="dim")
             if d.get("first_blood"):
                 return FeedLine(clock, "퍼블", "bold yellow", body)
             return FeedLine(clock, "킬", style, body)

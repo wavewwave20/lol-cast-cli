@@ -106,3 +106,12 @@ def test_dragons_str_one_emoji_per_take():
     assert _dragons_str(["hextech", "hextech", "hextech"]) == "⚡⚡⚡"
     assert _dragons_str(["ocean", "infernal"]) == "🌊🔥"
     assert _dragons_str([]) == "-"
+
+
+def test_kill_line_with_assists():
+    ctx = make_ctx()
+    ctx.names[2] = "Oner"
+    ev = Event("2026-07-06T06:25:01.000Z", "kill", "blue",
+               {"killer": 1, "victim": 6, "assists": [2]})
+    line = feed_line(ctx, ev)
+    assert line.body.plain == "Faker(아지르) → Tutsz(탈리야)  (어시 Oner)"

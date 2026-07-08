@@ -40,12 +40,15 @@ def diff(prev: dict, new: dict) -> list[Event]:
 def _kills(prev: dict, new: dict, ts: str) -> list[Event]:
     killers: list[tuple[str, int]] = []   # (side, participantId)
     victims: list[tuple[str, int]] = []
+    assisters: list[tuple[str, int]] = []
     for key, side in _SIDES:
         for pp, np in zip(prev[key]["participants"], new[key]["participants"]):
             if np["kills"] > pp["kills"]:
                 killers.append((side, np["participantId"]))
             if np["deaths"] > pp["deaths"]:
                 victims.append((side, np["participantId"]))
+            if np["assists"] > pp["assists"]:
+                assisters.append((side, np["participantId"]))
 
     # 이전 프레임까지 양 팀 0킬이었다면 이번 킬이 퍼스트 블러드
     no_kills_yet = (prev["blueTeam"]["totalKills"] == 0
@@ -56,6 +59,10 @@ def _kills(prev: dict, new: dict, ts: str) -> list[Event]:
         killer = next((k for k in killers if k[0] != v_side), None)
         if killer:
             data = {"killer": killer[1], "victim": v_id}
+            helps = [pid for side, pid in assisters
+                     if side == killer[0] and pid != killer[1]]
+            if helps:
+                data["assists"] = helps
             if no_kills_yet:
                 data["first_blood"] = True
                 no_kills_yet = False

@@ -104,3 +104,21 @@ def test_first_blood_flag():
                  team(parts=[part(6, deaths=2)]))
     evs2 = diff(prev2, new2)
     assert "first_blood" not in evs2[0].data
+
+
+def test_kill_with_assists():
+    prev = frame(team(kills=0, parts=[part(1), part(2), part(3)]),
+                 team(parts=[part(6)]))
+    new = frame(team(kills=1, parts=[part(1, kills=1), part(2, assists=1),
+                                     part(3, assists=1)]),
+                team(parts=[part(6, deaths=1)]))
+    evs = diff(prev, new)
+    assert evs[0].data["assists"] == [2, 3]
+
+    # 상대팀 어시(다른 킬 상황) 는 포함되지 않음
+    prev2 = frame(team(kills=1, parts=[part(1, kills=1)]),
+                  team(parts=[part(6)]))
+    new2 = frame(team(kills=2, parts=[part(1, kills=2)]),
+                 team(parts=[part(6, deaths=1, assists=1)]))
+    evs2 = diff(prev2, new2)
+    assert "assists" not in evs2[0].data
