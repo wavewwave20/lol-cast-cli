@@ -114,11 +114,14 @@ class CastScreen(Screen):
             return
         self._last_board = (ctx, frame, detail)
         board = render.scoreboard(ctx, frame,
-                                  speed=self.speed if self._replay else None)
+                                  speed=self.speed if self._replay else None,
+                                  width=self.size.width)
         if self.detail_on:
             from rich.console import Group
             if detail:
-                board = Group(board, Text(""), render.detail_board(ctx, detail))
+                board = Group(board, Text(""),
+                              render.detail_board(ctx, detail,
+                                                  width=self.size.width))
             else:
                 board = Group(board, Text("선수 상세 불러오는 중...", style="dim"))
         self.query_one("#scoreboard", Static).update(board)

@@ -79,3 +79,23 @@ def test_detail_board():
     ]}
     table = detail_board(ctx, detail)
     assert table.row_count == 3  # 헤더 + 선수 2명
+
+
+def test_detail_board_wide_pairs_lanes():
+    from lolcast.render import detail_board
+    ctx = make_ctx()
+    ctx.roles = {1: "mid", 6: "mid"}
+    detail = {"participants": [
+        {"participantId": 1, "kills": 3, "deaths": 1, "assists": 5, "level": 14,
+         "creepScore": 210, "totalGoldEarned": 10200,
+         "championDamageShare": 0.23, "killParticipation": 0.5,
+         "wardsPlaced": 8, "wardsDestroyed": 2},
+        {"participantId": 6, "kills": 1, "deaths": 3, "assists": 2, "level": 12,
+         "creepScore": 180, "totalGoldEarned": 8100,
+         "championDamageShare": 0.18, "killParticipation": 0.4,
+         "wardsPlaced": 5, "wardsDestroyed": 1},
+    ]}
+    table = detail_board(ctx, detail, width=120)  # wide: 헤더 + 라인 5줄
+    assert table.row_count == 6
+    table2 = detail_board(ctx, detail, width=80)  # narrow: 헤더 + 선수 2줄
+    assert table2.row_count == 3

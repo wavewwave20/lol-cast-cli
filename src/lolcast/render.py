@@ -129,8 +129,15 @@ def gold_bar(ctx: GameContext, blue: int, red: int, width: int = 20) -> Text:
     )
 
 
-def scoreboard(ctx: GameContext, frame: dict, speed: float | None = None) -> Table:
-    """상단 스코어보드: 제목/시계(+배속), 팀 지표 2줄, 골드 우위 바."""
+WIDE_SCORE_MIN = 92  # 이 폭 이상이면 팀 지표를 좌우 대결 구도로
+
+
+def scoreboard(ctx: GameContext, frame: dict, speed: float | None = None,
+               width: int = 0):
+    """상단 스코어보드: 제목/시계(+배속), 팀 지표, 골드 우위 바.
+
+    넓은 터미널에서는 팀 지표를 좌(블루)/우(레드) 미러로 배치한다.
+    """
     grid = Table.grid(expand=True, padding=(0, 1))
     grid.add_column(justify="left", ratio=1)
     grid.add_column(justify="right")
@@ -142,23 +149,72 @@ def scoreboard(ctx: GameContext, frame: dict, speed: float | None = None) -> Tab
         right = Text.assemble((f"x{speed:g}  ", "yellow"), (clock, "bold"))
     grid.add_row(Text(title, style="dim"), right)
 
-    for key, side in (("blueTeam", "blue"), ("redTeam", "red")):
-        tm = frame[key]
-        stats = (f"{tm['totalKills']:>2}킬   {tm['totalGold'] / 1000:>5.1f}k   "
-                 f"타워 {tm['towers']:<2}  용 {len(tm['dragons'])}  바론 {tm['barons']}")
-        grid.add_row(Text.assemble(
-            (f"{_team_code(ctx, side):<5}", TEAM_STYLE[side]), stats), "")
+    parts = [grid]
+    if width >= WIDE_SCORE_MIN:
+        parts.append(_teams_wide(ctx, frame))
+    else:
+        parts.append(_teams_stacked(ctx, frame))
 
+    bar = Table.grid(expand=True, padding=(0, 1))
+    bar.add_column(justify="left", ratio=1)
+    bar.add_column(justify="right")
     blue_g, red_g = frame["blueTeam"]["totalGold"], frame["redTeam"]["totalGold"]
     gap = blue_g - red_g
     side = "blue" if gap >= 0 else "red"
     label = Text(f"+{abs(gap) / 1000:.1f}k", style=TEAM_STYLE[side])
-    grid.add_row(gold_bar(ctx, blue_g, red_g), label)
+    bar.add_row(gold_bar(ctx, blue_g, red_g), label)
+    parts.append(bar)
+
+    from rich.console import Group
+    return Group(*parts)
+
+
+def _team_stats(tm: dict) -> tuple[int, float, int, int, int]:
+    return (tm["totalKills"], tm["totalGold"] / 1000, tm["towers"],
+            len(tm["dragons"]), tm["barons"])
+
+
+def _teams_stacked(ctx: GameContext, frame: dict) -> Table:
+    grid = Table.grid(expand=True, padding=(0, 1))
+    grid.add_column(justify="left", ratio=1)
+    for key, side in (("blueTeam", "blue"), ("redTeam", "red")):
+        k, g, t, d, b = _team_stats(frame[key])
+        stats = f"{k:>2}킬   {g:>5.1f}k   타워 {t:<2}  용 {d}  바론 {b}"
+        grid.add_row(Text.assemble(
+            (f"{_team_code(ctx, side):<5}", TEAM_STYLE[side]), stats))
     return grid
 
 
-def detail_board(ctx: GameContext, detail_frame: dict) -> Table:
-    """선수별 상세: KDA / 레벨 / CS / 골드 / 딜지분 / 킬관여 / 와드."""
+def _teams_wide(ctx: GameContext, frame: dict) -> Table:
+    """블루 | vs | 레드 — 좌우 대결 구도 (레드는 미러 순서)."""
+    grid = Table.grid(expand=True, padding=(0, 1))
+    grid.add_column(justify="left", ratio=1)
+    grid.add_column(justify="center", width=4)
+    grid.add_column(justify="right", ratio=1)
+    bk, bg, bt, bd, bb = _team_stats(frame["blueTeam"])
+    rk, rg, rt, rd, rb = _team_stats(frame["redTeam"])
+    left = Text.assemble(
+        (f"{ctx.blue_code}", "bold bright_blue"),
+        f"   {bk}킬   {bg:.1f}k   타워 {bt}  용 {bd}  바론 {bb}")
+    right = Text.assemble(
+        f"바론 {rb}  용 {rd}  타워 {rt}   {rg:.1f}k   {rk}킬   ",
+        (f"{ctx.red_code}", "bold red"))
+    grid.add_row(left, Text("vs", style="dim"), right)
+    return grid
+
+
+WIDE_DETAIL_MIN = 104  # 이 폭 이상이면 라인별 좌우 비교 레이아웃
+
+
+def detail_board(ctx: GameContext, detail_frame: dict, width: int = 0) -> Table:
+    """선수별 상세. 터미널이 넓으면 라인별 좌우 비교, 좁으면 위아래 나열."""
+    if width >= WIDE_DETAIL_MIN:
+        return _detail_wide(ctx, detail_frame)
+    return _detail_stacked(ctx, detail_frame)
+
+
+def _detail_stacked(ctx: GameContext, detail_frame: dict) -> Table:
+    """세로 나열: 블루 5명 → 레드 5명."""
     by_id = {p["participantId"]: p for p in detail_frame["participants"]}
     table = Table.grid(padding=(0, 1))
     for width, justify in ((5, "left"), (24, "left"), (9, "right"), (5, "right"),
@@ -177,12 +233,59 @@ def detail_board(ctx: GameContext, detail_frame: dict) -> Table:
         table.add_row(
             Text(role, style="dim"),
             Text(name, style=TEAM_STYLE[side]),
-            f"{p['kills']}/{p['deaths']}/{p['assists']}",
-            str(p["level"]),
-            str(p["creepScore"]),
+            _kda(p), str(p["level"]), str(p["creepScore"]),
             f"{p['totalGoldEarned'] / 1000:.1f}k",
-            f"{p.get('championDamageShare', 0) * 100:.0f}%",
-            f"{p.get('killParticipation', 0) * 100:.0f}%",
+            _pct(p, "championDamageShare"), _pct(p, "killParticipation"),
             f"{p.get('wardsPlaced', 0)}/{p.get('wardsDestroyed', 0)}",
         )
     return table
+
+
+def _detail_wide(ctx: GameContext, detail_frame: dict) -> Table:
+    """라인별 좌우 비교: 블루 | 스탯 | 롤 | 스탯 | 레드. 선수명은 양쪽 끝."""
+    by_id = {p["participantId"]: p for p in detail_frame["participants"]}
+    table = Table.grid(padding=(0, 1))
+    stat_cols = ((8, "right"), (3, "right"), (4, "right"), (6, "right"), (4, "right"))
+    table.add_column(width=21, justify="left")           # 블루 선수
+    for w, j in stat_cols:
+        table.add_column(width=w, justify=j)
+    table.add_column(width=4, justify="center")          # 롤
+    for w, j in stat_cols:
+        table.add_column(width=w, justify=j)
+    table.add_column(width=21, justify="right")          # 레드 선수
+
+    stat_head = ("KDA", "Lv", "CS", "골드", "딜%")
+    table.add_row(*[Text(h, style="dim") for h in
+                    (ctx.blue_code, *stat_head, "", *stat_head, ctx.red_code)])
+
+    def stats(p):
+        if p is None:
+            return ("-",) * 5
+        return (_kda(p), str(p["level"]), str(p["creepScore"]),
+                f"{p['totalGoldEarned'] / 1000:.1f}k",
+                _pct(p, "championDamageShare"))
+
+    def name(pid):
+        if pid not in by_id and pid not in ctx.names:
+            return Text("")
+        side = "blue" if pid <= 5 else "red"
+        return Text(f"{ctx.names.get(pid, f'#{pid}')}({ctx.champions.get(pid, '?')})",
+                    style=TEAM_STYLE[side])
+
+    for i in range(1, 6):
+        b_pid, r_pid = i, i + 5
+        role = ROLE_KO.get((ctx.roles or {}).get(b_pid, ""), "")
+        table.add_row(
+            name(b_pid), *stats(by_id.get(b_pid)),
+            Text(role, style="dim"),
+            *stats(by_id.get(r_pid)), name(r_pid),
+        )
+    return table
+
+
+def _kda(p: dict) -> str:
+    return f"{p['kills']}/{p['deaths']}/{p['assists']}"
+
+
+def _pct(p: dict, key: str) -> str:
+    return f"{p.get(key, 0) * 100:.0f}%"

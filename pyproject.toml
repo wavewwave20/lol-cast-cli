@@ -1,6 +1,6 @@
 [project]
 name = "lol-cast-cli"
-version = "0.3.1"
+version = "0.3.2"
 description = "LoL esports live text commentary in your terminal"
 readme = "README.md"
 license = "MIT"
