@@ -99,3 +99,10 @@ def test_detail_board_wide_pairs_lanes():
     assert table.row_count == 6
     table2 = detail_board(ctx, detail, width=80)  # narrow: 헤더 + 선수 2줄
     assert table2.row_count == 3
+
+
+def test_dragons_str_one_emoji_per_take():
+    from lolcast.render import _dragons_str
+    assert _dragons_str(["hextech", "hextech", "hextech"]) == "⚡⚡⚡"
+    assert _dragons_str(["ocean", "infernal"]) == "🌊🔥"
+    assert _dragons_str([]) == "-"

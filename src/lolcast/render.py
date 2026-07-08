@@ -11,6 +11,15 @@ DRAGON_KO = {
     "ocean": "바다", "mountain": "대지", "infernal": "화염", "cloud": "바람",
     "hextech": "마공학", "chemtech": "화학공학", "elder": "장로",
 }
+# 변형 선택자(VS16) 없는 안전한 2칸 이모지만 사용 (터미널 폭 계산 문제 방지)
+DRAGON_EMOJI = {
+    "ocean": "🌊", "mountain": "🗻", "infernal": "🔥", "cloud": "💨",
+    "hextech": "⚡", "chemtech": "🧪", "elder": "🐲",
+}
+
+
+def _dragons_str(dragons: list[str]) -> str:
+    return "".join(DRAGON_EMOJI.get(d, "🐉") for d in dragons) or "-"
 TEAM_STYLE = {"blue": "bold bright_blue", "red": "bold red"}
 
 
@@ -172,9 +181,9 @@ def scoreboard(ctx: GameContext, frame: dict, speed: float | None = None,
     return Group(*parts)
 
 
-def _team_stats(tm: dict) -> tuple[int, float, int, int, int]:
+def _team_stats(tm: dict) -> tuple[int, float, int, str, int]:
     return (tm["totalKills"], tm["totalGold"] / 1000, tm["towers"],
-            len(tm["dragons"]), tm["barons"])
+            _dragons_str(tm["dragons"]), tm["barons"])
 
 
 def _teams_stacked(ctx: GameContext, frame: dict) -> Table:
@@ -182,7 +191,7 @@ def _teams_stacked(ctx: GameContext, frame: dict) -> Table:
     grid.add_column(justify="left", ratio=1)
     for key, side in (("blueTeam", "blue"), ("redTeam", "red")):
         k, g, t, d, b = _team_stats(frame[key])
-        stats = f"{k:>2}킬   {g:>5.1f}k   타워 {t:<2}  용 {d}  바론 {b}"
+        stats = f"{k:>2}킬   {g:>5.1f}k   타워 {t:<2}  바론 {b}  용 {d}"
         grid.add_row(Text.assemble(
             (f"{_team_code(ctx, side):<5}", TEAM_STYLE[side]), stats))
     return grid
@@ -198,9 +207,9 @@ def _teams_wide(ctx: GameContext, frame: dict) -> Table:
     rk, rg, rt, rd, rb = _team_stats(frame["redTeam"])
     left = Text.assemble(
         (f"{ctx.blue_code}", "bold bright_blue"),
-        f"   {bk}킬   {bg:.1f}k   타워 {bt}  용 {bd}  바론 {bb}")
+        f"   {bk}킬   {bg:.1f}k   타워 {bt}  바론 {bb}  용 {bd}")
     right = Text.assemble(
-        f"바론 {rb}  용 {rd}  타워 {rt}   {rg:.1f}k   {rk}킬   ",
+        f"용 {rd}  바론 {rb}  타워 {rt}   {rg:.1f}k   {rk}킬   ",
         (f"{ctx.red_code}", "bold red"))
     grid.add_row(left, Text("vs", style="dim"), right)
     return grid
