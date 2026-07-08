@@ -127,6 +127,17 @@ def cmd_update(args) -> None:
         sys.exit(1)
     console.print(f"현재 버전: {_version()}", style="dim")
     console.print("$ " + " ".join(cmd), style="dim")
+    if sys.platform == "win32":
+        # 윈도우는 실행 중인 lolcast.exe가 잠겨 있어 이 프로세스가 살아있는 동안
+        # 교체가 불가(WinError 32). 새 콘솔에서 잠깐 기다렸다 업데이트하게 하고
+        # 즉시 종료해서 잠금을 푼다.
+        script = ("timeout /t 3 /nobreak >nul & " + " ".join(cmd)
+                  + " & echo. & echo === lolcast update complete === & pause")
+        subprocess.Popen(["cmd", "/c", script],
+                         creationflags=subprocess.CREATE_NEW_CONSOLE)
+        console.print("새 콘솔 창에서 업데이트를 계속할게. 이 창은 닫아도 돼.",
+                      style="bold green")
+        sys.exit(0)
     result = subprocess.run(cmd)
     if result.returncode == 0:
         console.print("업데이트 완료. 새 버전은 다음 실행부터 적용돼.", style="bold green")
