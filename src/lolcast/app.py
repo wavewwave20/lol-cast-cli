@@ -1,18 +1,14 @@
-"""중계 루프: Broadcaster(TUI 상태) + 리플레이/라이브 프레임 공급."""
-import time
-from collections import deque
-from datetime import datetime, timedelta, timezone
+"""중계 로직: Broadcaster(프레임 → 피드 라인 축적) + 리플레이/라이브 공급 루프.
 
-from rich.console import Console, Group
-from rich.live import Live
-from rich.rule import Rule
-from rich.table import Table
-from rich.text import Text
+UI에 독립적이다. 공급 루프는 ui 객체(thread-safe API: emit/update_scoreboard/
+set_status, 속성 speed)와 worker(is_cancelled)를 받아 동작한다.
+"""
+import time
+from datetime import datetime, timedelta, timezone
 
 from . import api, events, render
 
 GOLD_INTERVAL = 60  # 게임시간 기준 골드 현황 주기 (초)
-FEED_RECENT = 5     # 라이브 영역에 유지할 최근 피드 줄 수 (초과분은 스크롤백으로)
 
 
 def _parse(ts: str) -> datetime:
@@ -38,35 +34,24 @@ def build_context(window: dict, series: str = "") -> render.GameContext:
 
 
 class Broadcaster:
-    def __init__(self, ctx: render.GameContext, console: Console):
+    """프레임을 소비해 피드 라인을 쌓는다. UI가 take()로 가져간다."""
+
+    def __init__(self, ctx: render.GameContext):
         self.ctx = ctx
-        self.console = console
-        self.recent: deque[render.FeedLine] = deque()
+        self.pending: list[render.FeedLine] = []
         self.prev: dict | None = None
         self.last_frame: dict | None = None
         self.last_gold_at: float = 0.0  # 게임시간 초
         self.finished = False
 
-    def _row(self, line: render.FeedLine) -> Table:
-        grid = Table.grid(padding=(0, 2))
-        grid.add_column(justify="right", width=6)   # 시간
-        grid.add_column(width=6)                    # 태그
-        grid.add_column(ratio=1)                    # 내용
-        grid.add_row(Text(line.clock, style="dim"),
-                     Text(line.tag, style=line.tag_style),
-                     line.body)
-        return grid
-
-    def _push(self, line: render.FeedLine) -> None:
-        self.recent.append(line)
-        if len(self.recent) > FEED_RECENT:
-            # 라이브 영역에서 밀려난 줄은 스크롤백에 영구 출력 (터미널에서 스크롤 가능)
-            self.console.print(self._row(self.recent.popleft()))
-
     def info(self, text: str) -> None:
         clock = (render.game_clock(self.ctx, self.last_frame["rfc460Timestamp"])
                  if self.last_frame else "")
-        self._push(render.info_line(text, clock))
+        self.pending.append(render.info_line(text, clock))
+
+    def take(self) -> list[render.FeedLine]:
+        out, self.pending = self.pending, []
+        return out
 
     def process(self, frames: list[dict]) -> None:
         for f in frames:
@@ -76,7 +61,7 @@ class Broadcaster:
                 if f["rfc460Timestamp"] <= self.prev["rfc460Timestamp"]:
                     continue  # 윈도우 겹침/중복 프레임 스킵
                 for ev in events.diff(self.prev, f):
-                    self._push(render.feed_line(self.ctx, ev))
+                    self.pending.append(render.feed_line(self.ctx, ev))
                 self._maybe_gold(f)
             if f["gameState"] == "finished":
                 self.finished = True
@@ -90,62 +75,66 @@ class Broadcaster:
                    - _parse(self.ctx.game_start)).total_seconds()
         if elapsed - self.last_gold_at >= GOLD_INTERVAL:
             self.last_gold_at = elapsed
-            self._push(render.feed_line(self.ctx, events.gold_update(frame)))
-
-    def renderable(self):
-        grid = Table.grid(padding=(0, 2))
-        grid.add_column(justify="right", width=6)   # 시간
-        grid.add_column(width=6)                    # 태그
-        grid.add_column(ratio=1)                    # 내용
-        for line in self.recent:
-            grid.add_row(Text(line.clock, style="dim"),
-                         Text(line.tag, style=line.tag_style),
-                         line.body)
-        parts = []
-        if self.last_frame:
-            parts.append(render.scoreboard(self.ctx, self.last_frame))
-        parts.append(Rule(style="dim"))
-        parts.append(grid)
-        return Group(*parts)
+            self.pending.append(
+                render.feed_line(self.ctx, events.gold_update(frame)))
 
 
-def run_replay(game_id: str, speed: float = 8.0, series: str = "") -> None:
-    console = Console()
+def _sleep(worker, secs: float) -> bool:
+    """취소 가능 sleep. 취소되면 False."""
+    end = time.monotonic() + secs
+    while time.monotonic() < end:
+        if worker.is_cancelled:
+            return False
+        time.sleep(min(0.2, max(0.0, end - time.monotonic())))
+    return not worker.is_cancelled
+
+
+def _flush(ui, bc: Broadcaster) -> None:
+    ui.emit(bc.take())
+    if bc.last_frame:
+        ui.update_scoreboard(bc.ctx, bc.last_frame)
+
+
+def replay_source(ui, worker, game_id: str, series: str = "") -> None:
+    """완료된 게임을 처음부터 재생. ui.speed를 매 스텝 반영 (+/- 배속)."""
+    ui.set_status("게임 데이터 불러오는 중...")
     first = api.get_window(game_id)  # 완료 게임: 첫 윈도우
     if first is None or not first.get("frames"):
-        console.print("게임 데이터를 찾을 수 없어.", style="red")
+        ui.set_status("게임 데이터를 찾을 수 없어. q 로 뒤로.")
         return
     ctx = build_context(first, series)
-    bc = Broadcaster(ctx, console)
+    bc = Broadcaster(ctx)
     cursor = _parse(first["frames"][0]["rfc460Timestamp"])
-    with Live(console=console, refresh_per_second=4, screen=False) as live:
-        bc.process(first["frames"])
-        while not bc.finished:
-            cursor += timedelta(seconds=10)
-            win = api.get_window(game_id, api.align_ts(cursor))
-            if win and win.get("frames"):
-                # 종료 후엔 같은 마지막 윈도우가 반복 반환됨 → 진행 없으면 종료 처리
-                new_last = win["frames"][-1]["rfc460Timestamp"]
-                if bc.prev and new_last <= bc.prev["rfc460Timestamp"]:
-                    bc.finished = True
-                bc.process(win["frames"])
-            live.update(bc.renderable())
-            time.sleep(10.0 / speed)
-        live.update(bc.renderable())
-    console.print("중계 종료", style="bold")
+    bc.process(first["frames"])
+    _flush(ui, bc)
+    while not bc.finished:
+        cursor += timedelta(seconds=10)
+        win = api.get_window(game_id, api.align_ts(cursor))
+        if win and win.get("frames"):
+            # 종료 후엔 같은 마지막 윈도우가 반복 반환됨 → 진행 없으면 종료 처리
+            new_last = win["frames"][-1]["rfc460Timestamp"]
+            if bc.prev and new_last <= bc.prev["rfc460Timestamp"]:
+                bc.finished = True
+            bc.process(win["frames"])
+            _flush(ui, bc)
+        if not _sleep(worker, 10.0 / max(0.5, ui.speed)):
+            return
+    bc.info("중계 종료 — q 로 뒤로")
+    _flush(ui, bc)
 
 
-def run_live(match_id: str, poll: float = 10.0) -> None:
-    console = Console()
+def live_source(ui, worker, match_id: str, poll: float = 10.0) -> None:
+    """라이브 매치 중계. 세트 종료 시 다음 게임으로 자동 전환."""
+    ui.set_status("매치 정보 불러오는 중...")
     detail = api.get_event_details(match_id)
     teams = " vs ".join(t["code"] for t in detail["match"]["teams"])
-    with Live(console=console, refresh_per_second=4, screen=False) as live:
-        while True:
-            game = _current_game(match_id)
-            if game is None:
-                break
-            _broadcast_live_game(game, teams, live, console, poll)
-    console.print(f"{teams} 매치 종료", style="bold")
+    while not worker.is_cancelled:
+        game = _current_game(match_id)
+        if game is None:
+            ui.set_status(f"{teams} 매치 종료 — q 로 뒤로")
+            return
+        if not _broadcast_live_game(ui, worker, game, teams, poll):
+            return
 
 
 def _current_game(match_id: str) -> dict | None:
@@ -158,28 +147,28 @@ def _current_game(match_id: str) -> dict | None:
     return None
 
 
-def _broadcast_live_game(game: dict, teams: str, live, console, poll: float) -> None:
+def _broadcast_live_game(ui, worker, game: dict, teams: str, poll: float) -> bool:
     game_id = game["id"]
     bc: Broadcaster | None = None
-    while True:
+    while not worker.is_cancelled:
         win = api.get_window(game_id)
         if win is None or not win.get("frames"):
-            live.update(Text(
-                f"{teams} · Game {game['number']} 시작 대기 중...",
-                style="yellow"))
-            time.sleep(poll)
+            ui.set_status(f"{teams} · Game {game['number']} 시작 대기 중...")
+            if not _sleep(worker, poll):
+                return False
             continue
         if bc is None:
             ctx = build_context(win, game.get("_series", ""))
             ctx.game_start = api.find_game_start(
                 game_id, datetime.now(timezone.utc) - timedelta(hours=3))
-            bc = Broadcaster(ctx, console)
+            bc = Broadcaster(ctx)
             bc.info(f"{ctx.series} 중계 시작")
         bc.process(win["frames"])
-        live.update(bc.renderable())
+        _flush(ui, bc)
         if bc.finished:
             bc.info("다음 게임 확인 중...")
-            live.update(bc.renderable())
-            time.sleep(30)
-            return
-        time.sleep(poll)
+            _flush(ui, bc)
+            return _sleep(worker, 30)
+        if not _sleep(worker, poll):
+            return False
+    return False

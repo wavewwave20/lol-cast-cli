@@ -45,22 +45,27 @@ pipx install git+https://github.com/wavewwave20/lol-cast-cli.git
 ## 사용법
 
 ```bash
-lolcast schedule     # 국제대회 일정 (KST, 최근 결과 + 예정 경기)
-lolcast watch        # 라이브 경기 중계 (없으면 다음 예정 경기 안내)
-lolcast replay T1    # 지난 경기 리플레이 중계 (기본 8배속, 마지막 세트)
+lolcast
 ```
 
-옵션:
+이거 하나면 끝. 인터랙티브 TUI가 뜨고 나머지는 전부 화면에서 단일키로:
+
+| 화면 | 키 |
+|---|---|
+| 홈 (경기 목록) | `↑↓` 이동 · `Enter` 중계/리플레이 · `r` 새로고침 · `q` 종료 |
+| 세트 선택 | `↑↓` 또는 숫자키 · `Enter` 재생 · `q` 뒤로 |
+| 중계 | 휠/`↑↓`/`PgUp` 스크롤 · `f` 자동스크롤 · `+`/`-` 배속(리플레이) · `q` 뒤로 |
+
+- 라이브 경기는 목록에 `LIVE`로 표시, 선택하면 바로 중계 (세트 간 자동 전환)
+- 완료 경기는 세트를 골라 처음부터 배속 재생
+
+바로가기 서브커맨드도 있다:
 
 ```bash
-lolcast replay T1 --speed 20 --game 2     # 배속·세트 지정
-lolcast replay 115570934355614564         # gameId 직접 지정
-lolcast watch --league msi                # 리그 필터 (first_stand,msi,worlds)
+lolcast schedule                          # 일정만 출력하고 종료
+lolcast watch                             # 라이브 경기로 바로 진입
+lolcast replay T1 --speed 20 --game 2     # 리플레이로 바로 진입
 ```
-
-- `watch`는 세트가 끝나면 다음 게임으로 자동 전환하고, 매치가 끝나면 종료
-- `replay`는 완료된 경기를 처음부터 배속 재생 — 라이브가 없을 때 테스트 겸 시청용
-- 종료는 `Ctrl+C`
 
 ## 피드 태그
 
@@ -74,7 +79,7 @@ lolcast watch --league msi                # 리그 필터 (first_stand,msi,world
 - `esports-api.lolesports.com` (persisted API, 공개 x-api-key)로 일정/매치 조회
 - `feed.lolesports.com/livestats/v1/window/{gameId}` 를 10초 간격 폴링
   (윈도우당 초당 ~4프레임: 팀/참가자별 골드·KDA·오브젝트)
-- 순수 함수 diff 엔진이 프레임 쌍을 비교해 이벤트 추출 → rich Live TUI 렌더링
+- 순수 함수 diff 엔진이 프레임 쌍을 비교해 이벤트 추출 → Textual TUI 렌더링
 - livestats 프레임에는 게임 시계가 없어 첫 `in_game` 프레임 기준으로 계산
   (라이브 중간 참전 시 이진 탐색으로 게임 시작 시각 탐색)
 
@@ -93,8 +98,9 @@ src/lolcast/
 ├── api.py     # lolesports API 클라이언트 (백오프 재시도, 204 처리, ddragon 한글명)
 ├── events.py  # 프레임 diff 엔진 (순수 함수)
 ├── render.py  # 피드 라인/스코어보드 렌더링 (rich)
-├── app.py     # Broadcaster TUI (rich.Live) + 리플레이/라이브 루프
-└── cli.py     # schedule / watch / replay 서브커맨드
+├── app.py     # Broadcaster + 리플레이/라이브 공급 루프 (UI 독립)
+├── tui.py     # Textual 인터랙티브 TUI (홈/세트선택/중계 화면)
+└── cli.py     # 진입점 (기본: 인터랙티브, 서브커맨드: 바로가기)
 ```
 
 ## 주의

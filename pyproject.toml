@@ -1,13 +1,17 @@
 [project]
 name = "lol-cast-cli"
-version = "0.1.1"
+version = "0.2.0"
 description = "LoL esports live text commentary in your terminal"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
 authors = [{ name = "wavewwave20" }]
 keywords = ["lol", "esports", "cli", "lolesports", "league-of-legends"]
-dependencies = ["requests>=2.31", "rich>=13.7"]
+dependencies = [
+    "requests>=2.31",
+    "rich>=13.7",
+    "textual>=8.2.8",
+]
 
 [project.urls]
 Repository = "https://github.com/wavewwave20/lol-cast-cli"

@@ -52,6 +52,20 @@ def get_schedule(league_id: str) -> list[dict]:
     return d["data"]["schedule"]["events"]
 
 
+def league_events(slugs: list[str]) -> list[dict]:
+    """지정한 리그들의 일정을 시간순 병합. 각 이벤트에 _league 슬러그 부착."""
+    ids = intl_league_ids()
+    events = []
+    for slug in slugs:
+        if slug not in ids:
+            continue
+        for e in get_schedule(ids[slug]):
+            e["_league"] = slug
+            events.append(e)
+    events.sort(key=lambda e: e["startTime"])
+    return events
+
+
 def get_live() -> list[dict]:
     d = _get(f"{PERSISTED}/getLive", {"hl": "ko-KR"})
     return d["data"]["schedule"]["events"]
