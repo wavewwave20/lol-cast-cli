@@ -136,6 +136,12 @@ class CastScreen(Screen):
         # 앱 전체 즉시 종료. cli.main이 result를 보고 터미널을 클리어한다.
         self.app.exit(result="clear")
 
+    def check_action(self, action: str, parameters) -> bool | None:
+        # 배속 조절은 리플레이 전용 — 라이브에서는 푸터에서 숨긴다
+        if action in ("faster", "slower") and not self._replay:
+            return False
+        return True
+
     def action_toggle_follow(self) -> None:
         self.follow = not self.follow
         if self.follow:
@@ -328,6 +334,8 @@ class LolcastApp(App):
     """진입점. initial 지정 시 홈 대신 바로 중계 화면으로."""
 
     TITLE = "lolcast"
+    # Textual 내장 커맨드 팔레트(^p) 비활성 — 이 앱에선 쓸 일이 없다
+    ENABLE_COMMAND_PALETTE = False
     # 자체 배경을 칠하지 않고 터미널 기본 배경/전경색을 그대로 사용.
     # ansi_color만으로는 위젯별 DEFAULT_CSS($surface 배경, 포커스 틴트)가 남아서
     # 전부 transparent로 오버라이드한다.
