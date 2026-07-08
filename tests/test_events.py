@@ -38,7 +38,8 @@ def test_kill_attribution():
     assert len(evs) == 1
     assert evs[0].kind == "kill"
     assert evs[0].team == "blue"
-    assert evs[0].data == {"killer": 1, "victim": 6}
+    assert evs[0].data["killer"] == 1
+    assert evs[0].data["victim"] == 6
 
 
 def test_death_without_killer_is_execution():
@@ -87,3 +88,19 @@ def test_real_fixture_kill():
     assert kills[0].team == "blue"
     assert 1 <= kills[0].data["killer"] <= 5
     assert 6 <= kills[0].data["victim"] <= 10
+
+
+def test_first_blood_flag():
+    prev = frame(team(kills=0, parts=[part(1)]), team(parts=[part(6)]))
+    new = frame(team(kills=1, parts=[part(1, kills=1)]),
+                team(parts=[part(6, deaths=1)]))
+    evs = diff(prev, new)
+    assert evs[0].data.get("first_blood") is True
+
+    # 이미 킬이 있었으면 퍼블 아님
+    prev2 = frame(team(kills=1, parts=[part(1, kills=1)]),
+                  team(parts=[part(6, deaths=1)]))
+    new2 = frame(team(kills=2, parts=[part(1, kills=2)]),
+                 team(parts=[part(6, deaths=2)]))
+    evs2 = diff(prev2, new2)
+    assert "first_blood" not in evs2[0].data

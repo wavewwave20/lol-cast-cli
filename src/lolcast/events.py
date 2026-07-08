@@ -47,12 +47,19 @@ def _kills(prev: dict, new: dict, ts: str) -> list[Event]:
             if np["deaths"] > pp["deaths"]:
                 victims.append((side, np["participantId"]))
 
+    # 이전 프레임까지 양 팀 0킬이었다면 이번 킬이 퍼스트 블러드
+    no_kills_yet = (prev["blueTeam"]["totalKills"] == 0
+                    and prev["redTeam"]["totalKills"] == 0)
+
     events = []
     for v_side, v_id in victims:
         killer = next((k for k in killers if k[0] != v_side), None)
         if killer:
-            events.append(Event(ts, "kill", killer[0],
-                                {"killer": killer[1], "victim": v_id}))
+            data = {"killer": killer[1], "victim": v_id}
+            if no_kills_yet:
+                data["first_blood"] = True
+                no_kills_yet = False
+            events.append(Event(ts, "kill", killer[0], data))
         else:
             events.append(Event(ts, "execution", v_side, {"victim": v_id}))
     return events

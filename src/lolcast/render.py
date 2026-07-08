@@ -14,12 +14,17 @@ DRAGON_KO = {
 TEAM_STYLE = {"blue": "bold bright_blue", "red": "bold red"}
 
 
+ROLE_KO = {"top": "탑", "jungle": "정글", "mid": "미드",
+           "bottom": "원딜", "support": "서폿"}
+
+
 @dataclass
 class GameContext:
     blue_code: str
     red_code: str
     names: dict[int, str]        # participantId -> "Faker" (팀 접두어 제거)
     champions: dict[int, str]    # participantId -> 챔피언 한글명
+    roles: dict[int, str] | None = None  # participantId -> top/jungle/...
     game_start: str | None = None  # 첫 in_game 프레임의 rfc460Timestamp
     series: str = ""             # 예: "T1 vs FUR · Game 2"
 
@@ -74,6 +79,8 @@ def feed_line(ctx: GameContext, ev: Event) -> FeedLine:
                 " → ",
                 (_who(ctx, d["victim"]), TEAM_STYLE[_side_of(ctx, d["victim"])]),
             )
+            if d.get("first_blood"):
+                return FeedLine(clock, "퍼블", "bold yellow", body)
             return FeedLine(clock, "킬", style, body)
         case "execution":
             return FeedLine(clock, "처형", "dim",
@@ -148,3 +155,34 @@ def scoreboard(ctx: GameContext, frame: dict, speed: float | None = None) -> Tab
     label = Text(f"+{abs(gap) / 1000:.1f}k", style=TEAM_STYLE[side])
     grid.add_row(gold_bar(ctx, blue_g, red_g), label)
     return grid
+
+
+def detail_board(ctx: GameContext, detail_frame: dict) -> Table:
+    """선수별 상세: KDA / 레벨 / CS / 골드 / 딜지분 / 킬관여 / 와드."""
+    by_id = {p["participantId"]: p for p in detail_frame["participants"]}
+    table = Table.grid(padding=(0, 1))
+    for width, justify in ((5, "left"), (24, "left"), (9, "right"), (5, "right"),
+                           (5, "right"), (7, "right"), (5, "right"),
+                           (5, "right"), (6, "right")):
+        table.add_column(width=width, justify=justify)
+    table.add_row(*[Text(h, style="dim") for h in
+                    ("", "선수", "KDA", "Lv", "CS", "골드", "딜%", "킬%", "와드")])
+    for pid in range(1, 11):
+        p = by_id.get(pid)
+        if p is None:
+            continue
+        side = "blue" if pid <= 5 else "red"
+        role = ROLE_KO.get((ctx.roles or {}).get(pid, ""), "")
+        name = f"{ctx.names.get(pid, f'#{pid}')}({ctx.champions.get(pid, '?')})"
+        table.add_row(
+            Text(role, style="dim"),
+            Text(name, style=TEAM_STYLE[side]),
+            f"{p['kills']}/{p['deaths']}/{p['assists']}",
+            str(p["level"]),
+            str(p["creepScore"]),
+            f"{p['totalGoldEarned'] / 1000:.1f}k",
+            f"{p.get('championDamageShare', 0) * 100:.0f}%",
+            f"{p.get('killParticipation', 0) * 100:.0f}%",
+            f"{p.get('wardsPlaced', 0)}/{p.get('wardsDestroyed', 0)}",
+        )
+    return table

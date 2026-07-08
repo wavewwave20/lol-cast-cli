@@ -21,6 +21,7 @@ def build_context(window: dict, series: str = "") -> render.GameContext:
     champ_ko = api.champion_names_ko()
     codes = {}
     names, champs = {}, {}
+    roles = {}
     for meta_key in ("blueTeamMetadata", "redTeamMetadata"):
         parts = md[meta_key]["participantMetadata"]
         code = parts[0]["summonerName"].split()[0]
@@ -29,9 +30,10 @@ def build_context(window: dict, series: str = "") -> render.GameContext:
             pid = p["participantId"]
             names[pid] = p["summonerName"].removeprefix(code + " ")
             champs[pid] = champ_ko.get(p["championId"], p["championId"])
+            roles[pid] = p.get("role", "")
     return render.GameContext(
         blue_code=codes["blueTeamMetadata"], red_code=codes["redTeamMetadata"],
-        names=names, champions=champs, series=series)
+        names=names, champions=champs, roles=roles, series=series)
 
 
 class Broadcaster:
@@ -42,6 +44,7 @@ class Broadcaster:
         self.pending: list[render.FeedLine] = []
         self.prev: dict | None = None
         self.last_frame: dict | None = None
+        self.detail_frame: dict | None = None  # 선수별 상세 (details 엔드포인트)
         self.last_gold_at: float = 0.0  # 게임시간 초
         self.finished = False
 
@@ -93,7 +96,19 @@ def _sleep(worker, secs: float) -> bool:
 def _flush(ui, bc: Broadcaster) -> None:
     ui.emit(bc.take())
     if bc.last_frame:
-        ui.update_scoreboard(bc.ctx, bc.last_frame)
+        ui.update_scoreboard(bc.ctx, bc.last_frame, bc.detail_frame)
+
+
+def _maybe_details(ui, bc: Broadcaster, game_id: str, ts: str | None) -> None:
+    """상세 보드가 켜져 있을 때만 details를 가져온다 (실패해도 중계는 계속)."""
+    if not getattr(ui, "detail_on", False):
+        return
+    try:
+        det = api.get_details(game_id, ts)
+    except Exception:
+        return
+    if det and det.get("frames"):
+        bc.detail_frame = det["frames"][-1]
 
 
 def replay_source(ui, worker, game_id: str, series: str = "") -> None:
@@ -117,6 +132,7 @@ def replay_source(ui, worker, game_id: str, series: str = "") -> None:
             if bc.prev and new_last <= bc.prev["rfc460Timestamp"]:
                 bc.finished = True
             bc.process(win["frames"])
+            _maybe_details(ui, bc, game_id, api.align_ts(cursor))
             _flush(ui, bc)
         if not _sleep(worker, 10.0 / max(0.5, ui.speed)):
             return
@@ -204,6 +220,7 @@ def _broadcast_live_game(ui, worker, game: dict, teams: str, poll: float) -> boo
         win = api.get_window(game_id, api.align_ts(cursor))
         if win and win.get("frames"):
             bc.process(win["frames"])
+            _maybe_details(ui, bc, game_id, api.align_ts(cursor))
             _flush(ui, bc)
             last = _parse(win["frames"][-1]["rfc460Timestamp"])
             if last > cursor:

@@ -81,6 +81,12 @@ def get_window(game_id: str, starting_time: str | None = None) -> dict | None:
     return _get(f"{FEED}/window/{game_id}", params)
 
 
+def get_details(game_id: str, starting_time: str | None = None) -> dict | None:
+    """선수별 상세 프레임 (KDA/CS/딜지분/와드/아이템 등)."""
+    params = {"startingTime": starting_time} if starting_time else None
+    return _get(f"{FEED}/details/{game_id}", params)
+
+
 _champ_ko: dict[str, str] | None = None
 
 

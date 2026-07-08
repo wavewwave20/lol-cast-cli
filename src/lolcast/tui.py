@@ -44,6 +44,7 @@ class CastScreen(Screen):
     BINDINGS = [
         Binding("q,escape", "back", "뒤로"),
         Binding("c", "quit_clear", "종료"),
+        Binding("d", "toggle_detail", "선수 상세"),
         Binding("f", "toggle_follow", "자동스크롤"),
         Binding("plus,equals_sign", "faster", "배속+"),
         Binding("minus", "slower", "배속-"),
@@ -66,6 +67,8 @@ class CastScreen(Screen):
         self._replay = replay
         self.speed = speed
         self.follow = True
+        self.detail_on = False  # 소스 루프가 읽어 details 페치 여부 결정
+        self._last_board = None  # (ctx, frame, detail) — 토글 시 즉시 재렌더용
         self._worker = None
 
     def compose(self) -> ComposeResult:
@@ -92,8 +95,8 @@ class CastScreen(Screen):
         if lines:
             self.app.call_from_thread(self._emit, lines)
 
-    def update_scoreboard(self, ctx, frame) -> None:
-        self.app.call_from_thread(self._scoreboard, ctx, frame)
+    def update_scoreboard(self, ctx, frame, detail=None) -> None:
+        self.app.call_from_thread(self._scoreboard, ctx, frame, detail)
 
     def set_status(self, text: str) -> None:
         self.app.call_from_thread(self._status, text)
@@ -106,11 +109,19 @@ class CastScreen(Screen):
         for line in lines:
             log.write(feed_row(line), scroll_end=self.follow)
 
-    def _scoreboard(self, ctx, frame) -> None:
-        if self.is_mounted:
-            self.query_one("#scoreboard", Static).update(
-                render.scoreboard(ctx, frame,
-                                  speed=self.speed if self._replay else None))
+    def _scoreboard(self, ctx, frame, detail=None) -> None:
+        if not self.is_mounted:
+            return
+        self._last_board = (ctx, frame, detail)
+        board = render.scoreboard(ctx, frame,
+                                  speed=self.speed if self._replay else None)
+        if self.detail_on:
+            from rich.console import Group
+            if detail:
+                board = Group(board, Text(""), render.detail_board(ctx, detail))
+            else:
+                board = Group(board, Text("선수 상세 불러오는 중...", style="dim"))
+        self.query_one("#scoreboard", Static).update(board)
 
     def _status(self, text: str) -> None:
         if self.is_mounted:
@@ -135,6 +146,11 @@ class CastScreen(Screen):
     def action_to_end(self) -> None:
         self.follow = True
         self.query_one("#feed", RichLog).scroll_end(animate=False)
+
+    def action_toggle_detail(self) -> None:
+        self.detail_on = not self.detail_on
+        if self._last_board:
+            self._scoreboard(*self._last_board)  # 다음 폴링 전에 즉시 반영
 
     def action_faster(self) -> None:
         self._set_speed(self.speed * 2)
