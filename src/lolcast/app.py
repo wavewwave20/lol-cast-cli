@@ -128,13 +128,20 @@ def live_source(ui, worker, match_id: str, poll: float = 10.0) -> None:
     ui.set_status("매치 정보 불러오는 중...")
     detail = api.get_event_details(match_id)
     teams = " vs ".join(t["code"] for t in detail["match"]["teams"])
+    done: set[str] = set()  # 종료를 본 게임 id (API 상태 갱신 지연 대응)
     while not worker.is_cancelled:
         game = _current_game(match_id)
         if game is None:
             ui.set_status(f"{teams} 매치 종료 — q 로 뒤로")
             return
+        if game["id"] in done:
+            ui.set_status(f"{teams} — 다음 게임 대기 중...")
+            if not _sleep(worker, 15):
+                return
+            continue
         if not _broadcast_live_game(ui, worker, game, teams, poll):
             return
+        done.add(game["id"])
 
 
 def _current_game(match_id: str) -> dict | None:
@@ -148,27 +155,58 @@ def _current_game(match_id: str) -> dict | None:
 
 
 def _broadcast_live_game(ui, worker, game: dict, teams: str, poll: float) -> bool:
+    """라이브 게임 스트리밍.
+
+    livestats는 startingTime 없이 요청하면 (라이브 게임이라도) 첫 윈도우를
+    반환하므로, 첫 윈도우로 게임 시작 시각만 얻고 now-60s부터 10초 윈도우
+    커서를 전진시키며 실시간을 따라간다. startingTime은 now-45s 이전이어야
+    하므로(400), 따라잡으면 다음 윈도우가 유효해질 때까지 대기한다.
+    """
     game_id = game["id"]
     bc: Broadcaster | None = None
+    cursor: datetime | None = None
     while not worker.is_cancelled:
-        win = api.get_window(game_id)
-        if win is None or not win.get("frames"):
-            ui.set_status(f"{teams} · Game {game['number']} 시작 대기 중...")
-            if not _sleep(worker, poll):
+        if bc is None:
+            first = api.get_window(game_id)  # 라이브도 첫 윈도우가 온다
+            if first is None or not first.get("frames"):
+                ui.set_status(f"{teams} · Game {game['number']} 시작 대기 중...")
+                if not _sleep(worker, poll):
+                    return False
+                continue
+            ctx = build_context(first, game.get("_series", ""))
+            start_frame = next(
+                (f for f in first["frames"] if f["gameState"] == "in_game"),
+                first["frames"][0])
+            ctx.game_start = start_frame["rfc460Timestamp"]
+            bc = Broadcaster(ctx)
+            bc.info(f"{ctx.series} 실시간 중계 합류")
+            _flush(ui, bc)
+            cursor = max(
+                _parse(ctx.game_start),
+                datetime.now(timezone.utc) - timedelta(seconds=60),
+            ) - timedelta(seconds=10)
+
+        cursor += timedelta(seconds=10)
+        latest_allowed = datetime.now(timezone.utc) - timedelta(seconds=50)
+        if cursor > latest_allowed:
+            # 실시간까지 따라잡음 → 다음 윈도우가 유효해질 때까지 대기
+            wait = (cursor - latest_allowed).total_seconds()
+            cursor -= timedelta(seconds=10)
+            if not _sleep(worker, min(poll, max(1.0, wait))):
                 return False
             continue
-        if bc is None:
-            ctx = build_context(win, game.get("_series", ""))
-            ctx.game_start = api.find_game_start(
-                game_id, datetime.now(timezone.utc) - timedelta(hours=3))
-            bc = Broadcaster(ctx)
-            bc.info(f"{ctx.series} 중계 시작")
-        bc.process(win["frames"])
-        _flush(ui, bc)
+
+        win = api.get_window(game_id, api.align_ts(cursor))
+        if win and win.get("frames"):
+            bc.process(win["frames"])
+            _flush(ui, bc)
+            last = _parse(win["frames"][-1]["rfc460Timestamp"])
+            if last > cursor:
+                cursor = last
         if bc.finished:
-            bc.info("다음 게임 확인 중...")
+            bc.info("게임 종료 — 다음 게임 확인 중...")
             _flush(ui, bc)
             return _sleep(worker, 30)
-        if not _sleep(worker, poll):
+        if not _sleep(worker, 0.3):  # 따라잡기 중 빠른 전진 (실시간이면 위에서 대기)
             return False
     return False

@@ -97,27 +97,3 @@ def champion_names_ko() -> dict[str, str]:
         except Exception:
             _champ_ko = {}
     return _champ_ko
-
-
-def find_game_start(game_id: str, lower: datetime) -> str | None:
-    """라이브 게임의 시작 시각(첫 프레임 ts)을 이진 탐색으로 찾는다.
-
-    lower: 게임 시작 이전이 확실한 시각 (예: 현재 - 3시간).
-    204(시작 전) vs 200(프레임 있음) 경계를 좁힌다.
-    """
-    lo = lower.astimezone(timezone.utc)
-    hi = datetime.now(timezone.utc) - timedelta(seconds=60)
-    lo_win = get_window(game_id, align_ts(lo))
-    if lo_win is not None:
-        # lower가 이미 게임 시작 이후 → 첫 윈도우가 곧 시작점
-        return lo_win["frames"][0]["rfc460Timestamp"] if lo_win.get("frames") else None
-    best = None
-    while (hi - lo).total_seconds() > 10:
-        mid = lo + (hi - lo) / 2
-        win = get_window(game_id, align_ts(mid))
-        if win is None:
-            lo = mid
-        else:
-            best = win
-            hi = mid
-    return best["frames"][0]["rfc460Timestamp"] if best and best.get("frames") else None
