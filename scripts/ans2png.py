@@ -27,11 +27,12 @@ CJK = "/usr/share/fonts/opentype/noto/NotoSansCJK-{}.ttc"
 EMOJI_FONT = ImageFont.truetype(
     "/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf", 109)
 
+# CJK는 전각 advance가 1em이라 2셀(2*CW)에 딱 맞게 폰트 크기를 키운다
 FONTS = {
     ("latin", False): ImageFont.truetype(DEJAVU.format(""), FS),
     ("latin", True): ImageFont.truetype(DEJAVU.format("-Bold"), FS),
-    ("cjk", False): ImageFont.truetype(CJK.format("Regular"), FS, index=6),
-    ("cjk", True): ImageFont.truetype(CJK.format("Bold"), FS, index=6),
+    ("cjk", False): ImageFont.truetype(CJK.format("Regular"), CW * 2, index=6),
+    ("cjk", True): ImageFont.truetype(CJK.format("Bold"), CW * 2, index=6),
 }
 
 
