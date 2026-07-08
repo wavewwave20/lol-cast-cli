@@ -13,13 +13,15 @@ DRAGON_KO = {
 }
 # 변형 선택자(VS16) 없는 안전한 2칸 이모지만 사용 (터미널 폭 계산 문제 방지)
 DRAGON_EMOJI = {
-    "ocean": "🌊", "mountain": "🗻", "infernal": "🔥", "cloud": "💨",
-    "hextech": "⚡", "chemtech": "🧪", "elder": "🐲",
+    "ocean": "🌊", "mountain": "🗻", "infernal": "🔥", "cloud": "🌀",
+    "hextech": "⚡", "chemtech": "🧪", "elder": "👴",
 }
 
 
 def _dragons_str(dragons: list[str]) -> str:
     return "".join(DRAGON_EMOJI.get(d, "🐉") for d in dragons) or "-"
+
+
 TEAM_STYLE = {"blue": "bold bright_blue", "red": "bold red"}
 
 
