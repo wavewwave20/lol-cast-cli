@@ -2,7 +2,7 @@
 
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Platform](https://img.shields.io/badge/platform-linux%20%7C%20macos-lightgrey)
+![Platform](https://img.shields.io/badge/platform-linux%20%7C%20macos%20%7C%20windows-lightgrey)
 
 LoL 이스포츠 국제대회(**First Stand / MSI / Worlds**)를 터미널에서
 스포츠 텍스트 중계처럼 보는 인터랙티브 CLI.
@@ -53,7 +53,8 @@ T1 ▓▓▓▓▓▓▓▓▓▓▓░░░░░░░░░ FUR             
 
 ## 설치
 
-Linux / macOS, Python 3.10+.
+Linux / macOS / Windows, Python 3.10+.
+(Windows는 [Windows Terminal](https://aka.ms/terminal) 사용 권장 — 구형 cmd 콘솔은 색·마우스 지원이 제한적)
 
 [uv](https://docs.astral.sh/uv/) (권장):
 
@@ -87,7 +88,7 @@ lolcast
 |---|---|
 | 홈 (경기 목록) | `↑↓` 이동 · `Enter` 중계/리플레이 · `r` 새로고침 · `q` 종료 |
 | 세트 선택 | `↑↓` 또는 숫자키 · `Enter` 재생 · `q` 뒤로 |
-| 중계 | 휠/`↑↓`/`PgUp` 스크롤 · `f` 자동스크롤 · `End` 맨 아래로 · `+`/`-` 배속(리플레이) · `q` 뒤로 |
+| 중계 | 휠/`↑↓`/`PgUp` 스크롤 · `f` 자동스크롤 · `End` 맨 아래로 · `+`/`-` 배속(리플레이) · `q` 뒤로 · `c` 즉시 종료+화면 클리어 |
 
 바로가기 서브커맨드:
 

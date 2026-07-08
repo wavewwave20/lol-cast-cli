@@ -43,6 +43,7 @@ class CastScreen(Screen):
 
     BINDINGS = [
         Binding("q,escape", "back", "뒤로"),
+        Binding("c", "quit_clear", "종료"),
         Binding("f", "toggle_follow", "자동스크롤"),
         Binding("plus,equals_sign", "faster", "배속+"),
         Binding("minus", "slower", "배속-"),
@@ -110,6 +111,10 @@ class CastScreen(Screen):
     # ---- 액션 ----
     def action_back(self) -> None:
         self.app.pop_screen()
+
+    def action_quit_clear(self) -> None:
+        # 앱 전체 즉시 종료. cli.main이 result를 보고 터미널을 클리어한다.
+        self.app.exit(result="clear")
 
     def action_toggle_follow(self) -> None:
         self.follow = not self.follow

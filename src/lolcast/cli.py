@@ -72,13 +72,13 @@ def cmd_watch(args) -> None:
         idx = int(input("중계할 경기 번호: ")) - 1
     else:
         idx = 0
-    LolcastApp(initial=("live", live[idx]["match"]["id"])).run()
+    _run_app(LolcastApp(initial=("live", live[idx]["match"]["id"])))
 
 
 def cmd_replay(args) -> None:
     console = Console()
     if args.query.isdigit() and len(args.query) > 12:
-        LolcastApp(initial=("replay", args.query, args.speed, "")).run()
+        _run_app(LolcastApp(initial=("replay", args.query, args.speed, "")))
         return
     events = api.league_events(list(api.INTL_SLUGS))
     q = args.query.lower()
@@ -97,7 +97,7 @@ def cmd_replay(args) -> None:
         sys.exit(1)
     g = games[args.game - 1] if 0 < args.game <= len(games) else games[-1]
     series = f"{teams} · Game {g['number']} (replay)"
-    LolcastApp(initial=("replay", g["id"], args.speed, series)).run()
+    _run_app(LolcastApp(initial=("replay", g["id"], args.speed, series)))
 
 
 GIT_URL = "git+https://github.com/wavewwave20/lol-cast-cli.git"
@@ -133,6 +133,12 @@ def cmd_update(args) -> None:
     sys.exit(result.returncode)
 
 
+def _run_app(app: LolcastApp) -> None:
+    """앱 실행. c(종료+클리어)로 나오면 터미널을 지운다."""
+    if app.run() == "clear":
+        Console().clear()  # rich가 윈도우 포함 플랫폼별 클리어 처리
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         prog="lolcast",
@@ -161,7 +167,7 @@ def main() -> None:
     args = parser.parse_args()
     try:
         if args.command is None:
-            LolcastApp().run()
+            _run_app(LolcastApp())
         else:
             args.func(args)
     except KeyboardInterrupt:
