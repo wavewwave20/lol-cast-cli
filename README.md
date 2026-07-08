@@ -39,8 +39,8 @@ pipx:
 pipx install git+https://github.com/wavewwave20/lol-cast-cli.git
 ```
 
-설치하면 `lolcast` 명령어가 생긴다. 업그레이드는
-`uv tool upgrade lol-cast-cli` / `pipx upgrade lol-cast-cli`.
+설치하면 `lolcast` 명령어가 생긴다. 업데이트는 `lolcast update` 한 방이면 된다
+(uv/pipx 설치 방식을 감지해서 최신 버전으로 재설치).
 
 ## 사용법
 
@@ -65,6 +65,7 @@ lolcast
 lolcast schedule                          # 일정만 출력하고 종료
 lolcast watch                             # 라이브 경기로 바로 진입
 lolcast replay T1 --speed 20 --game 2     # 리플레이로 바로 진입
+lolcast update                            # 최신 버전으로 자가 업데이트
 ```
 
 ## 피드 태그
