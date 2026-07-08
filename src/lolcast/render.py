@@ -125,8 +125,9 @@ def feed_line(ctx: GameContext, ev: Event) -> FeedLine:
             if d["to"] == "finished":
                 if d.get("winner"):
                     code = _team_code(ctx, d["winner"])
+                    suffix = " 승리 (추정)" if d.get("estimated") else " 승리!"
                     body = Text.assemble(
-                        "게임 종료 — ", (f"{code} 승리!", TEAM_STYLE[d["winner"]]))
+                        "게임 종료 — ", (f"{code}{suffix}", TEAM_STYLE[d["winner"]]))
                     return FeedLine(clock, "종료", "bold", body)
                 return FeedLine(clock, "종료", "bold", Text("게임 종료", style="bold"))
             if d["to"] == "paused":
@@ -136,6 +137,16 @@ def feed_line(ctx: GameContext, ev: Event) -> FeedLine:
             return info_line(d["to"], clock)
         case _:
             return info_line(ev.kind, clock)
+
+
+def winner_line(ctx: GameContext, side: str, score: str | None = None,
+                estimated: bool = False) -> FeedLine:
+    code = _team_code(ctx, side)
+    txt = f"{code} 승리"
+    if score:
+        txt += f" — 세트 {score}"
+    txt += " (추정)" if estimated else "!"
+    return FeedLine("", "승리", TEAM_STYLE[side], Text(txt, style=TEAM_STYLE[side]))
 
 
 def gold_bar(ctx: GameContext, blue: int, red: int, width: int = 20) -> Text:

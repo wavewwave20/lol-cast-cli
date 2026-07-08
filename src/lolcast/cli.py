@@ -97,7 +97,13 @@ def cmd_replay(args) -> None:
         sys.exit(1)
     g = games[args.game - 1] if 0 < args.game <= len(games) else games[-1]
     series = f"{teams} · Game {g['number']} (replay)"
-    _run_app(LolcastApp(initial=("replay", g["id"], args.speed, series)))
+    # 확정 가능한 승자: 마지막 게임=매치 승자, 스윕이면 전 게임
+    wins = [t.get("result", {}).get("gameWins", 0) for t in e["match"]["teams"]]
+    winner_code = None
+    if wins[0] != wins[1] and (g is games[-1] or min(wins) == 0):
+        winner_code = e["match"]["teams"][0 if wins[0] > wins[1] else 1].get("code")
+    _run_app(LolcastApp(initial=("replay", g["id"], args.speed, series,
+                                 winner_code)))
 
 
 GIT_URL = "git+https://github.com/wavewwave20/lol-cast-cli.git"

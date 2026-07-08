@@ -39,8 +39,11 @@ def build_context(window: dict, series: str = "") -> render.GameContext:
 class Broadcaster:
     """프레임을 소비해 피드 라인을 쌓는다. UI가 take()로 가져간다."""
 
-    def __init__(self, ctx: render.GameContext):
+    def __init__(self, ctx: render.GameContext,
+                 known_winner: str | None = None, use_heuristic: bool = False):
         self.ctx = ctx
+        self.known_winner = known_winner      # "blue"/"red" — 확정 승자
+        self.use_heuristic = use_heuristic    # 확정 불가 시 구조물 추정 사용
         self.pending: list[render.FeedLine] = []
         self.prev: dict | None = None
         self.last_frame: dict | None = None
@@ -69,10 +72,13 @@ class Broadcaster:
                     if ev.kind in ("tower", "inhibitor"):
                         self._last_structure = ev.team
                     elif (ev.kind == "game_state"
-                          and ev.data.get("to") == "finished"
-                          and self._last_structure):
-                        # 넥서스 직전에 넥서스 타워를 깨므로 마지막 구조물 파괴 팀 = 승자
-                        ev.data["winner"] = self._last_structure
+                          and ev.data.get("to") == "finished"):
+                        if self.known_winner:
+                            ev.data["winner"] = self.known_winner
+                        elif self.use_heuristic and self._last_structure:
+                            # 백도어 등 예외가 있어 추정임을 표시
+                            ev.data["winner"] = self._last_structure
+                            ev.data["estimated"] = True
                     self.pending.append(render.feed_line(self.ctx, ev))
                 self._maybe_gold(f)
             if f["gameState"] == "finished":
@@ -119,15 +125,22 @@ def _maybe_details(ui, bc: Broadcaster, game_id: str, ts: str | None) -> None:
         bc.detail_frame = det["frames"][-1]
 
 
-def replay_source(ui, worker, game_id: str, series: str = "") -> None:
-    """완료된 게임을 처음부터 재생. ui.speed를 매 스텝 반영 (+/- 배속)."""
+def replay_source(ui, worker, game_id: str, series: str = "",
+                  winner_code: str | None = None) -> None:
+    """완료된 게임을 처음부터 재생. ui.speed를 매 스텝 반영 (+/- 배속).
+
+    winner_code: 확정 승자 팀 코드 (마지막 게임=매치 승자, 스윕 등).
+    None이면 구조물 휴리스틱으로 추정 표시.
+    """
     ui.set_status("게임 데이터 불러오는 중...")
     first = api.get_window(game_id)  # 완료 게임: 첫 윈도우
     if first is None or not first.get("frames"):
         ui.set_status("게임 데이터를 찾을 수 없어. q 로 뒤로.")
         return
     ctx = build_context(first, series)
-    bc = Broadcaster(ctx)
+    known = ("blue" if winner_code == ctx.blue_code
+             else "red" if winner_code == ctx.red_code else None)
+    bc = Broadcaster(ctx, known_winner=known, use_heuristic=known is None)
     cursor = _parse(first["frames"][0]["rfc460Timestamp"])
     bc.process(first["frames"])
     _flush(ui, bc)
@@ -177,8 +190,39 @@ def _current_game(match_id: str, done: set[str]) -> dict | None:
             continue
         if g["state"] in ("inProgress", "unstarted"):
             g["_series"] = f"{teams} · Game {g['number']}"
+            g["_match_id"] = match_id
             return g
     return None
+
+
+def _game_wins(match_id: str) -> dict[str, int]:
+    detail = api.get_event_details(match_id)
+    return {t["code"]: t.get("result", {}).get("gameWins", 0)
+            for t in detail["match"]["teams"]}
+
+
+def _announce_live_winner(ui, worker, bc: Broadcaster, match_id: str,
+                          wins0: dict[str, int]) -> None:
+    """게임 종료 후 매치 gameWins 증가를 폴링해 승자를 확정 발표."""
+    for _ in range(18):  # 최대 ~3분 대기
+        if not _sleep(worker, 10):
+            return
+        try:
+            wins = _game_wins(match_id)
+        except Exception:
+            continue
+        for code, w in wins.items():
+            if w > wins0.get(code, 0):
+                side = ("blue" if code == bc.ctx.blue_code else "red")
+                score = ":".join(str(v) for v in wins.values())
+                bc.pending.append(render.winner_line(bc.ctx, side, score))
+                _flush(ui, bc)
+                return
+    # API 확정 실패 → 구조물 추정으로 폴백
+    if bc._last_structure:
+        bc.pending.append(render.winner_line(bc.ctx, bc._last_structure,
+                                             estimated=True))
+        _flush(ui, bc)
 
 
 def _broadcast_live_game(ui, worker, game: dict, teams: str, poll: float) -> bool:
@@ -192,6 +236,10 @@ def _broadcast_live_game(ui, worker, game: dict, teams: str, poll: float) -> boo
     game_id = game["id"]
     bc: Broadcaster | None = None
     cursor: datetime | None = None
+    try:
+        wins0 = _game_wins(game["_match_id"])  # 게임 시작 전 세트 스코어 스냅샷
+    except Exception:
+        wins0 = {}
     while not worker.is_cancelled:
         if bc is None:
             first = api.get_window(game_id)  # 라이브도 첫 윈도우가 온다
@@ -234,9 +282,11 @@ def _broadcast_live_game(ui, worker, game: dict, teams: str, poll: float) -> boo
             if last > cursor:
                 cursor = last
         if bc.finished:
-            bc.info("게임 종료 — 다음 게임 확인 중...")
             _flush(ui, bc)
-            return _sleep(worker, 30)
+            _announce_live_winner(ui, worker, bc, game["_match_id"], wins0)
+            bc.info("다음 게임 확인 중...")
+            _flush(ui, bc)
+            return _sleep(worker, 10)
         if not _sleep(worker, 0.3):  # 따라잡기 중 빠른 전진 (실시간이면 위에서 대기)
             return False
     return False

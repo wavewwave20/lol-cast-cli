@@ -241,9 +241,21 @@ class GamePickScreen(Screen):
             return
         g = self._games[idx]
         series = f"{self._teams} · Game {g['number']} (replay)"
+        winner_code = self._winner_code(idx)
         self.app.push_screen(CastScreen(
-            lambda ui, worker: cast.replay_source(ui, worker, g["id"], series),
+            lambda ui, worker: cast.replay_source(
+                ui, worker, g["id"], series, winner_code),
             replay=True))
+
+    def _winner_code(self, idx: int) -> str | None:
+        """확정 가능한 경우의 게임 승자: 마지막 게임=매치 승자, 스윕이면 전부."""
+        teams = self._event["match"]["teams"]
+        wins = [t.get("result", {}).get("gameWins", 0) for t in teams]
+        if wins[0] == wins[1]:
+            return None
+        if idx == len(self._games) - 1 or min(wins) == 0:
+            return teams[0 if wins[0] > wins[1] else 1].get("code")
+        return None
 
     def action_back(self) -> None:
         self.app.pop_screen()
@@ -375,8 +387,9 @@ class LolcastApp(App):
                 self.push_screen(CastScreen(
                     lambda ui, worker: cast.live_source(ui, worker, rest[0])))
             elif kind == "replay":
-                game_id, speed, series = rest
+                game_id, speed, series, *opt = rest
+                winner_code = opt[0] if opt else None
                 self.push_screen(CastScreen(
                     lambda ui, worker: cast.replay_source(
-                        ui, worker, game_id, series),
+                        ui, worker, game_id, series, winner_code),
                     replay=True, speed=speed))
