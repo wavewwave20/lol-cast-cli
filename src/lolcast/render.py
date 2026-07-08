@@ -155,14 +155,17 @@ def scoreboard(ctx: GameContext, frame: dict, speed: float | None = None,
     else:
         parts.append(_teams_stacked(ctx, frame))
 
-    bar = Table.grid(expand=True, padding=(0, 1))
-    bar.add_column(justify="left", ratio=1)
-    bar.add_column(justify="right")
+    # 골드 우위 바: 가운데 정렬, 폭에 비례해 길게, 차이 라벨은 바 바로 옆에
     blue_g, red_g = frame["blueTeam"]["totalGold"], frame["redTeam"]["totalGold"]
     gap = blue_g - red_g
     side = "blue" if gap >= 0 else "red"
-    label = Text(f"+{abs(gap) / 1000:.1f}k", style=TEAM_STYLE[side])
-    bar.add_row(gold_bar(ctx, blue_g, red_g), label)
+    bar_width = max(20, min(70, (width or 60) - 26))
+    line = gold_bar(ctx, blue_g, red_g, width=bar_width)
+    line.append("  ")
+    line.append_text(Text(f"+{abs(gap) / 1000:.1f}k", style=TEAM_STYLE[side]))
+    bar = Table.grid(expand=True)
+    bar.add_column(justify="center")
+    bar.add_row(line)
     parts.append(bar)
 
     from rich.console import Group
