@@ -51,7 +51,12 @@ class CastScreen(Screen):
     ]
     CSS = """
     #scoreboard { height: auto; padding: 0 1; }
-    #feed { border-top: solid $panel; padding: 0 1; scrollbar-size-vertical: 1; }
+    #feed {
+        height: 1fr;  /* 화면 넘침으로 Screen 스크롤바가 스코어보드를 가리는 것 방지 */
+        border-top: solid $panel;
+        padding: 0 1;
+        scrollbar-size-vertical: 1;
+    }
     """
 
     def __init__(self, source, replay: bool = False, speed: float = 8.0):
@@ -77,7 +82,10 @@ class CastScreen(Screen):
             self._worker.cancel()
 
     def _work(self) -> None:
-        self._source(self, get_current_worker())
+        try:
+            self._source(self, get_current_worker())
+        except Exception as e:  # 워커가 조용히 죽으면 화면이 대기 상태로 얼어붙는다
+            self.set_status(f"연결 오류: {e} — q로 나갔다 다시 들어와줘")
 
     # ---- 워커 스레드에서 호출하는 thread-safe API ----
     def emit(self, lines: list[render.FeedLine]) -> None:

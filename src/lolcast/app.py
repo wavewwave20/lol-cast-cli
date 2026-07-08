@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 from . import api, events, render
 
 GOLD_INTERVAL = 60  # 게임시간 기준 골드 현황 주기 (초)
+KST = timezone(timedelta(hours=9))
 
 
 def _parse(ts: str) -> datetime:
@@ -130,24 +131,26 @@ def live_source(ui, worker, match_id: str, poll: float = 10.0) -> None:
     teams = " vs ".join(t["code"] for t in detail["match"]["teams"])
     done: set[str] = set()  # 종료를 본 게임 id (API 상태 갱신 지연 대응)
     while not worker.is_cancelled:
-        game = _current_game(match_id)
+        game = _current_game(match_id, done)
         if game is None:
             ui.set_status(f"{teams} 매치 종료 — q 로 뒤로")
             return
-        if game["id"] in done:
-            ui.set_status(f"{teams} — 다음 게임 대기 중...")
-            if not _sleep(worker, 15):
-                return
-            continue
         if not _broadcast_live_game(ui, worker, game, teams, poll):
             return
         done.add(game["id"])
 
 
-def _current_game(match_id: str) -> dict | None:
+def _current_game(match_id: str, done: set[str]) -> dict | None:
+    """다음에 중계할 게임. 이미 종료를 본 게임(done)은 건너뛴다.
+
+    세트 사이에 API가 끝난 게임을 한동안 inProgress로 유지하므로,
+    done 기준으로 건너뛰어야 다음 게임 대기로 바로 넘어간다.
+    """
     detail = api.get_event_details(match_id)
     teams = " vs ".join(t["code"] for t in detail["match"]["teams"])
     for g in detail["match"]["games"]:
+        if g["id"] in done:
+            continue
         if g["state"] in ("inProgress", "unstarted"):
             g["_series"] = f"{teams} · Game {g['number']}"
             return g
@@ -169,7 +172,9 @@ def _broadcast_live_game(ui, worker, game: dict, teams: str, poll: float) -> boo
         if bc is None:
             first = api.get_window(game_id)  # 라이브도 첫 윈도우가 온다
             if first is None or not first.get("frames"):
-                ui.set_status(f"{teams} · Game {game['number']} 시작 대기 중...")
+                stamp = datetime.now(KST).strftime("%H:%M:%S")
+                ui.set_status(f"{teams} · Game {game['number']} 시작 대기 중... "
+                              f"(마지막 확인 {stamp})")
                 if not _sleep(worker, poll):
                     return False
                 continue
