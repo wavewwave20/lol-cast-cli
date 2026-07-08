@@ -1,7 +1,11 @@
 """lolcast CLI 진입점. 인자 없이 실행하면 인터랙티브 TUI."""
 import argparse
+import shutil
+import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
+from importlib.metadata import PackageNotFoundError, version
+from pathlib import Path
 
 from rich.console import Console
 from rich.table import Table
@@ -96,10 +100,45 @@ def cmd_replay(args) -> None:
     LolcastApp(initial=("replay", g["id"], args.speed, series)).run()
 
 
+GIT_URL = "git+https://github.com/wavewwave20/lol-cast-cli.git"
+
+
+def _version() -> str:
+    try:
+        return version("lol-cast-cli")
+    except PackageNotFoundError:
+        return "dev"
+
+
+def cmd_update(args) -> None:
+    console = Console()
+    prefix = str(Path(sys.prefix))
+    if "uv/tools" in prefix or "uv\\tools" in prefix:
+        cmd = ["uv", "tool", "install", "--force", GIT_URL]
+    elif "pipx" in prefix:
+        cmd = ["pipx", "install", "--force", GIT_URL]
+    elif shutil.which("uv"):
+        cmd = ["uv", "tool", "install", "--force", GIT_URL]
+    elif shutil.which("pipx"):
+        cmd = ["pipx", "install", "--force", GIT_URL]
+    else:
+        console.print("uv나 pipx를 못 찾았어. 수동으로 업데이트해줘:", style="red")
+        console.print(f"  pip install --upgrade {GIT_URL}", style="dim")
+        sys.exit(1)
+    console.print(f"현재 버전: {_version()}", style="dim")
+    console.print("$ " + " ".join(cmd), style="dim")
+    result = subprocess.run(cmd)
+    if result.returncode == 0:
+        console.print("업데이트 완료. 새 버전은 다음 실행부터 적용돼.", style="bold green")
+    sys.exit(result.returncode)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         prog="lolcast",
         description="LoL 이스포츠 CLI 텍스트 중계 — 인자 없이 실행하면 인터랙티브 모드")
+    parser.add_argument("--version", action="version",
+                        version=f"lol-cast-cli {_version()}")
     sub = parser.add_subparsers(dest="command")
 
     p = sub.add_parser("schedule", help="경기 일정 출력")
@@ -115,6 +154,9 @@ def main() -> None:
     p.add_argument("--speed", type=float, default=8.0)
     p.add_argument("--game", type=int, default=0, help="세트 번호 (기본: 마지막)")
     p.set_defaults(func=cmd_replay)
+
+    p = sub.add_parser("update", help="lolcast 최신 버전으로 업데이트")
+    p.set_defaults(func=cmd_update)
 
     args = parser.parse_args()
     try:
