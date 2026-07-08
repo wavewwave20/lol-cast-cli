@@ -291,8 +291,29 @@ class LolcastApp(App):
     """진입점. initial 지정 시 홈 대신 바로 중계 화면으로."""
 
     TITLE = "lolcast"
-    # 자체 배경을 칠하지 않고 터미널 기본 배경/전경색을 그대로 사용
+    # 자체 배경을 칠하지 않고 터미널 기본 배경/전경색을 그대로 사용.
+    # ansi_color만으로는 위젯별 DEFAULT_CSS($surface 배경, 포커스 틴트)가 남아서
+    # 전부 transparent로 오버라이드한다.
     ansi_color = True
+    CSS = """
+    Screen { background: transparent; }
+    Static { background: transparent; }
+    RichLog { background: transparent; }
+    RichLog:focus { background-tint: $foreground 0%; }
+    DataTable { background: transparent; }
+    DataTable:focus { background-tint: $foreground 0%; }
+    ListView { background: transparent; }
+    ListView:focus { background-tint: $foreground 0%; }
+    ListItem { background: transparent; }
+    Footer { background: transparent; }
+    FooterKey { background: transparent; }
+    * {
+        scrollbar-background: transparent;
+        scrollbar-background-hover: transparent;
+        scrollbar-background-active: transparent;
+        scrollbar-corner-color: transparent;
+    }
+    """
 
     def __init__(self, initial: tuple | None = None):
         super().__init__()
