@@ -101,7 +101,8 @@ class CastScreen(Screen):
     def _scoreboard(self, ctx, frame) -> None:
         if self.is_mounted:
             self.query_one("#scoreboard", Static).update(
-                render.scoreboard(ctx, frame))
+                render.scoreboard(ctx, frame,
+                                  speed=self.speed if self._replay else None))
 
     def _status(self, text: str) -> None:
         if self.is_mounted:
@@ -132,6 +133,18 @@ class CastScreen(Screen):
 
     def action_slower(self) -> None:
         self._set_speed(self.speed / 2)
+
+    def on_key(self, event) -> None:
+        # 터미널/자판에 따라 +,-가 다른 키 이름으로 들어오는 경우 대비:
+        # 바인딩(키 이름)이 못 잡으면 입력 문자 자체로 판정한다.
+        if event.key in ("minus", "plus", "equals_sign"):
+            return  # 바인딩이 처리
+        if event.character == "-":
+            self.action_slower()
+            event.stop()
+        elif event.character in ("+", "="):
+            self.action_faster()
+            event.stop()
 
     def _set_speed(self, value: float) -> None:
         if not self._replay:

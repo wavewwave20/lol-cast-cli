@@ -122,15 +122,18 @@ def gold_bar(ctx: GameContext, blue: int, red: int, width: int = 20) -> Text:
     )
 
 
-def scoreboard(ctx: GameContext, frame: dict) -> Table:
-    """상단 스코어보드: 제목/시계, 팀 지표 2줄, 골드 우위 바."""
+def scoreboard(ctx: GameContext, frame: dict, speed: float | None = None) -> Table:
+    """상단 스코어보드: 제목/시계(+배속), 팀 지표 2줄, 골드 우위 바."""
     grid = Table.grid(expand=True, padding=(0, 1))
     grid.add_column(justify="left", ratio=1)
     grid.add_column(justify="right")
 
     title = ctx.series or f"{ctx.blue_code} vs {ctx.red_code}"
     clock = game_clock(ctx, frame["rfc460Timestamp"])
-    grid.add_row(Text(title, style="dim"), Text(clock, style="bold"))
+    right = Text(clock, style="bold")
+    if speed is not None:
+        right = Text.assemble((f"x{speed:g}  ", "yellow"), (clock, "bold"))
+    grid.add_row(Text(title, style="dim"), right)
 
     for key, side in (("blueTeam", "blue"), ("redTeam", "red")):
         tm = frame[key]
