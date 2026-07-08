@@ -123,6 +123,11 @@ def feed_line(ctx: GameContext, ev: Event) -> FeedLine:
             return FeedLine(clock, "골드", "yellow", body)
         case "game_state":
             if d["to"] == "finished":
+                if d.get("winner"):
+                    code = _team_code(ctx, d["winner"])
+                    body = Text.assemble(
+                        "게임 종료 — ", (f"{code} 승리!", TEAM_STYLE[d["winner"]]))
+                    return FeedLine(clock, "종료", "bold", body)
                 return FeedLine(clock, "종료", "bold", Text("게임 종료", style="bold"))
             if d["to"] == "paused":
                 return FeedLine(clock, "중지", "dim", Text("경기 일시 정지"))
@@ -231,16 +236,23 @@ def detail_board(ctx: GameContext, detail_frame: dict, width: int = 0) -> Table:
     return _detail_stacked(ctx, detail_frame)
 
 
+def _detail_table(**kwargs) -> Table:
+    """상세 보드 공통 표 스타일: 헤더 밑줄, 세로선 없음, 여백 일정."""
+    from rich import box
+    # 컬럼 사이 간격은 box.SIMPLE의 구분 공백으로 충분 — 패딩 추가 시 폭 초과
+    return Table(box=box.SIMPLE, show_edge=False, pad_edge=False,
+                 padding=(0, 0), header_style="dim", **kwargs)
+
+
 def _detail_stacked(ctx: GameContext, detail_frame: dict) -> Table:
     """세로 나열: 블루 5명 → 레드 5명."""
     by_id = {p["participantId"]: p for p in detail_frame["participants"]}
-    table = Table.grid(padding=(0, 1))
-    for width, justify in ((5, "left"), (24, "left"), (9, "right"), (5, "right"),
-                           (5, "right"), (7, "right"), (5, "right"),
-                           (5, "right"), (6, "right")):
-        table.add_column(width=width, justify=justify)
-    table.add_row(*[Text(h, style="dim") for h in
-                    ("", "선수", "KDA", "Lv", "CS", "골드", "딜%", "킬%", "와드")])
+    table = _detail_table()
+    table.add_column("", width=5)
+    table.add_column("선수", width=24)
+    for h, w in (("KDA", 8), ("Lv", 3), ("CS", 4), ("골드", 6),
+                 ("딜%", 4), ("킬%", 4), ("와드", 5)):
+        table.add_column(h, width=w, justify="right")
     for pid in range(1, 11):
         p = by_id.get(pid)
         if p is None:
@@ -256,25 +268,24 @@ def _detail_stacked(ctx: GameContext, detail_frame: dict) -> Table:
             _pct(p, "championDamageShare"), _pct(p, "killParticipation"),
             f"{p.get('wardsPlaced', 0)}/{p.get('wardsDestroyed', 0)}",
         )
+        if pid == 5:
+            table.add_section()  # 팀 사이 구분선
     return table
 
 
 def _detail_wide(ctx: GameContext, detail_frame: dict) -> Table:
     """라인별 좌우 비교: 블루 | 스탯 | 롤 | 스탯 | 레드. 선수명은 양쪽 끝."""
     by_id = {p["participantId"]: p for p in detail_frame["participants"]}
-    table = Table.grid(padding=(0, 1))
-    stat_cols = ((8, "right"), (3, "right"), (4, "right"), (6, "right"), (4, "right"))
-    table.add_column(width=21, justify="left")           # 블루 선수
-    for w, j in stat_cols:
-        table.add_column(width=w, justify=j)
-    table.add_column(width=4, justify="center")          # 롤
-    for w, j in stat_cols:
-        table.add_column(width=w, justify=j)
-    table.add_column(width=21, justify="right")          # 레드 선수
-
-    stat_head = ("KDA", "Lv", "CS", "골드", "딜%")
-    table.add_row(*[Text(h, style="dim") for h in
-                    (ctx.blue_code, *stat_head, "", *stat_head, ctx.red_code)])
+    table = _detail_table()
+    stat_cols = (("KDA", 8), ("Lv", 3), ("CS", 4), ("골드", 6), ("딜%", 4))
+    table.add_column(Text(ctx.blue_code, style="bold bright_blue"), width=21)
+    for h, w in stat_cols:
+        table.add_column(h, width=w, justify="right")
+    table.add_column("", width=4, justify="center")      # 롤
+    for h, w in stat_cols:
+        table.add_column(h, width=w, justify="right")
+    table.add_column(Text(ctx.red_code, style="bold red"), width=21,
+                     justify="right")
 
     def stats(p):
         if p is None:

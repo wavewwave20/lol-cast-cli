@@ -47,6 +47,7 @@ class Broadcaster:
         self.detail_frame: dict | None = None  # 선수별 상세 (details 엔드포인트)
         self.last_gold_at: float = 0.0  # 게임시간 초
         self.finished = False
+        self._last_structure: str | None = None  # 마지막 구조물 파괴 팀(승자 추정)
 
     def info(self, text: str) -> None:
         clock = (render.game_clock(self.ctx, self.last_frame["rfc460Timestamp"])
@@ -65,6 +66,13 @@ class Broadcaster:
                 if f["rfc460Timestamp"] <= self.prev["rfc460Timestamp"]:
                     continue  # 윈도우 겹침/중복 프레임 스킵
                 for ev in events.diff(self.prev, f):
+                    if ev.kind in ("tower", "inhibitor"):
+                        self._last_structure = ev.team
+                    elif (ev.kind == "game_state"
+                          and ev.data.get("to") == "finished"
+                          and self._last_structure):
+                        # 넥서스 직전에 넥서스 타워를 깨므로 마지막 구조물 파괴 팀 = 승자
+                        ev.data["winner"] = self._last_structure
                     self.pending.append(render.feed_line(self.ctx, ev))
                 self._maybe_gold(f)
             if f["gameState"] == "finished":

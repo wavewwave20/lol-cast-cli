@@ -78,7 +78,7 @@ def test_detail_board():
          "wardsPlaced": 5, "wardsDestroyed": 1},
     ]}
     table = detail_board(ctx, detail)
-    assert table.row_count == 3  # 헤더 + 선수 2명
+    assert table.row_count == 2  # 선수 2명 (헤더는 별도)
 
 
 def test_detail_board_wide_pairs_lanes():
@@ -95,10 +95,10 @@ def test_detail_board_wide_pairs_lanes():
          "championDamageShare": 0.18, "killParticipation": 0.4,
          "wardsPlaced": 5, "wardsDestroyed": 1},
     ]}
-    table = detail_board(ctx, detail, width=120)  # wide: 헤더 + 라인 5줄
-    assert table.row_count == 6
-    table2 = detail_board(ctx, detail, width=80)  # narrow: 헤더 + 선수 2줄
-    assert table2.row_count == 3
+    table = detail_board(ctx, detail, width=120)  # wide: 라인 5줄 (헤더는 별도)
+    assert table.row_count == 5
+    table2 = detail_board(ctx, detail, width=80)  # narrow: 선수 2줄
+    assert table2.row_count == 2
 
 
 def test_dragons_str_one_emoji_per_take():
